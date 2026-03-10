@@ -1,0 +1,9 @@
+[package]
+name = "ferrinx"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ort = "2.0.0-rc.12"
+redis = "1.0.5"
+sqlx = "0.8.6"
