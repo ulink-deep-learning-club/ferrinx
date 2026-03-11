@@ -304,7 +304,7 @@ enum ConfigCommands {
 enum OutputFormat {
     Table,
     Json,
-    Yaml,
+    Toml,
 }
 
 #[tokio::main]

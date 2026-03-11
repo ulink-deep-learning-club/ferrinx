@@ -23,9 +23,6 @@ pub enum CliError {
     #[error("TOML serialization error: {0}")]
     TomlSer(#[from] toml::ser::Error),
 
-    #[error("YAML error: {0}")]
-    Yaml(#[from] serde_yaml::Error),
-
     #[error("HTTP client error: {0}")]
     Reqwest(#[from] reqwest::Error),
 

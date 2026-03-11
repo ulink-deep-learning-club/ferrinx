@@ -1754,7 +1754,7 @@ api_key_file = "~/.ferrinx/api_key"
 admin_key_file = "~/.ferrinx/admin_key"
 
 [output]
-format = "table"  # table, json, yaml
+format = "table"  # table, json, toml
 ```
 
 ## 15. 优雅停机设计

@@ -7,7 +7,7 @@ use serde::Serialize;
 pub fn print_output<T: Serialize>(value: &T, format: OutputFormat) -> Result<()> {
     match format {
         OutputFormat::Json => print_json(value),
-        OutputFormat::Yaml => print_yaml(value),
+        OutputFormat::Toml => print_toml(value),
         OutputFormat::Table => print_json(value),
     }
 }
@@ -18,9 +18,9 @@ pub fn print_json<T: Serialize>(value: &T) -> Result<()> {
     Ok(())
 }
 
-pub fn print_yaml<T: Serialize>(value: &T) -> Result<()> {
-    let yaml = serde_yaml::to_string(value)?;
-    println!("{}", yaml);
+pub fn print_toml<T: Serialize>(value: &T) -> Result<()> {
+    let toml = toml::to_string_pretty(value)?;
+    println!("{}", toml);
     Ok(())
 }
 
@@ -57,10 +57,7 @@ pub fn print_api_keys(keys: &[ApiKeyInfo], format: OutputFormat) -> Result<()> {
                     Cell::new(&key.name),
                     Cell::new(if key.is_active { "✓" } else { "✗" }),
                     Cell::new(if key.is_temporary { "✓" } else { "✗" }),
-                    Cell::new(
-                        key.expires_at
-                            .map_or("Never".to_string(), format_datetime),
-                    ),
+                    Cell::new(key.expires_at.map_or("Never".to_string(), format_datetime)),
                 ]);
             }
 

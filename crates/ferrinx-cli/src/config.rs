@@ -9,7 +9,7 @@ pub enum OutputFormat {
     #[default]
     Table,
     Json,
-    Yaml,
+    Toml,
 }
 
 impl std::fmt::Display for OutputFormat {
@@ -17,7 +17,7 @@ impl std::fmt::Display for OutputFormat {
         match self {
             OutputFormat::Table => write!(f, "table"),
             OutputFormat::Json => write!(f, "json"),
-            OutputFormat::Yaml => write!(f, "yaml"),
+            OutputFormat::Toml => write!(f, "toml"),
         }
     }
 }
@@ -103,7 +103,7 @@ impl CliConfig {
                 self.output_format = match value.to_lowercase().as_str() {
                     "table" => OutputFormat::Table,
                     "json" => OutputFormat::Json,
-                    "yaml" => OutputFormat::Yaml,
+                    "toml" => OutputFormat::Toml,
                     _ => {
                         return Err(CliError::InvalidInput(format!(
                             "Invalid output format: {}",
