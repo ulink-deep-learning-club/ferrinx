@@ -8,7 +8,7 @@ use clap::Subcommand;
 #[derive(Subcommand)]
 pub enum AuthCommands {
     Login {
-        #[arg(short, long)]
+        #[arg(short = 'U', long)]
         username: String,
         #[arg(short, long)]
         password: Option<String>,

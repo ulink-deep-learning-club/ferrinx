@@ -11,7 +11,7 @@ pub enum InferCommands {
         model_id: String,
         #[arg(short, long)]
         input: String,
-        #[arg(short, long)]
+        #[arg(short = 'O', long)]
         output: Option<String>,
     },
     Async {

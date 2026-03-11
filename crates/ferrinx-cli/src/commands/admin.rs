@@ -9,7 +9,7 @@ use ferrinx_common::User;
 #[derive(Subcommand)]
 pub enum AdminCommands {
     CreateUser {
-        #[arg(short, long)]
+        #[arg(short = 'U', long)]
         username: String,
         #[arg(short, long)]
         password: Option<String>,
@@ -21,7 +21,7 @@ pub enum AdminCommands {
         user_id: String,
     },
     Bootstrap {
-        #[arg(short, long)]
+        #[arg(short = 'U', long)]
         username: String,
         #[arg(short, long)]
         password: Option<String>,
