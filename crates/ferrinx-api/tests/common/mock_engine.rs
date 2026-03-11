@@ -2,11 +2,21 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_trait::async_trait;
-use ferrinx_common::{InferenceInput, InferenceOutput, OnnxConfig};
+use ferrinx_common::{InferenceInput, InferenceOutput};
 use ferrinx_core::error::{CoreError, Result};
-use ferrinx_core::inference::engine::{CacheStatus, ConcurrencyStatus};
 use tokio::sync::{Mutex, Semaphore};
+
+#[derive(Debug, Clone)]
+pub struct CacheStatus {
+    pub loaded_models: usize,
+    pub max_size: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConcurrencyStatus {
+    pub available_permits: usize,
+    pub total_permits: usize,
+}
 
 pub struct MockInferenceEngine {
     semaphore: Arc<Semaphore>,
@@ -17,19 +27,18 @@ pub struct MockInferenceEngine {
 }
 
 impl MockInferenceEngine {
-    pub fn new(config: &OnnxConfig) -> Self {
+    pub fn new(cache_size: usize) -> Self {
         Self {
-            semaphore: Arc::new(Semaphore::new(config.cache_size)),
+            semaphore: Arc::new(Semaphore::new(cache_size)),
             responses: Arc::new(Mutex::new(HashMap::new())),
             should_fail: Arc::new(Mutex::new(false)),
             delay_ms: Arc::new(Mutex::new(0)),
-            max_concurrency: config.cache_size,
+            max_concurrency: cache_size,
         }
     }
 
     pub fn with_default_response() -> Self {
-        let config = OnnxConfig::default();
-        let engine = Self::new(&config);
+        let engine = Self::new(5);
         engine.set_default_response();
         engine
     }

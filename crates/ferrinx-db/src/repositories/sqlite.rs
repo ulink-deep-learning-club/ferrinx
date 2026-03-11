@@ -374,9 +374,12 @@ impl TaskRepository for SqliteTaskRepository {
 
         let query = r#"
             DELETE FROM inference_tasks 
-            WHERE status IN ('completed', 'failed', 'cancelled')
-              AND completed_at < ?1
-            LIMIT ?2
+            WHERE rowid IN (
+                SELECT rowid FROM inference_tasks 
+                WHERE status IN ('completed', 'failed', 'cancelled')
+                  AND completed_at < ?1
+                LIMIT ?2
+            )
         "#;
 
         let result = sqlx::query(query)

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use ferrinx_common::{
@@ -34,6 +33,10 @@ impl TestDb {
             db: Arc::new(db),
             _temp_file: temp_file,
         }
+    }
+
+    pub fn temp_file_path(&self) -> String {
+        self._temp_file.path().to_str().expect("Invalid path").to_string()
     }
 
     pub async fn create_user(&self, username: &str, role: UserRole) -> User {
@@ -83,12 +86,19 @@ impl TestDb {
     }
 
     pub async fn create_model(&self, name: &str, version: &str) -> ModelInfo {
+        let model_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/common/models/lenet.onnx");
+        
+        let file_size = std::fs::metadata(&model_path)
+            .map(|m| m.len() as i64)
+            .ok();
+
         let model = ModelInfo {
             id: Uuid::new_v4(),
             name: name.to_string(),
             version: version.to_string(),
-            file_path: format!("/models/{}-{}.onnx", name, version),
-            file_size: Some(1024),
+            file_path: model_path.to_string_lossy().to_string(),
+            file_size,
             storage_backend: "local".to_string(),
             input_shapes: None,
             output_shapes: None,

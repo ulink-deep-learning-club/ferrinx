@@ -4,6 +4,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
+type Result<T> = std::result::Result<T, MockRedisError>;
+
 #[derive(Debug, Clone)]
 pub struct StreamEntry {
     pub id: String,
@@ -27,16 +29,16 @@ pub trait RedisClient: Send + Sync {
         stream: &str,
         count: usize,
         block_ms: u64,
-    ) -> crate::Result<Option<Vec<StreamEntry>>>;
+    ) -> Result<Option<Vec<StreamEntry>>>;
 
-    async fn xack(&self, stream: &str, group: &str, entry_id: &str) -> crate::Result<()>;
+    async fn xack(&self, stream: &str, group: &str, entry_id: &str) -> Result<()>;
 
     async fn xpending(
         &self,
         stream: &str,
         group: &str,
         count: usize,
-    ) -> crate::Result<Vec<PendingInfo>>;
+    ) -> Result<Vec<PendingInfo>>;
 
     async fn xclaim(
         &self,
@@ -45,26 +47,26 @@ pub trait RedisClient: Send + Sync {
         consumer: &str,
         min_idle_ms: i64,
         entry_ids: &[&str],
-    ) -> crate::Result<Vec<StreamEntry>>;
+    ) -> Result<Vec<StreamEntry>>;
 
     async fn xadd(
         &self,
         stream: &str,
         data: &HashMap<String, String>,
-    ) -> crate::Result<String>;
+    ) -> Result<String>;
 
     async fn set_json(
         &self,
         key: &str,
         value: &serde_json::Value,
         ttl: Duration,
-    ) -> crate::Result<()>;
+    ) -> Result<()>;
 
-    async fn get_json(&self, key: &str) -> crate::Result<Option<serde_json::Value>>;
+    async fn get_json(&self, key: &str) -> Result<Option<serde_json::Value>>;
 
-    async fn del(&self, key: &str) -> crate::Result<()>;
+    async fn del(&self, key: &str) -> Result<()>;
 
-    async fn health_check(&self) -> crate::Result<()>;
+    async fn health_check(&self) -> Result<()>;
 }
 
 pub struct MockRedis {
@@ -142,8 +144,6 @@ impl Default for MockRedis {
         Self::new()
     }
 }
-
-type Result<T> = std::result::Result<T, MockRedisError>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MockRedisError {

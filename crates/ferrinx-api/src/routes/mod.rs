@@ -37,9 +37,9 @@ pub fn create_router(state: AppState) -> Router {
             post(handlers::inference::sync_infer),
         )
         .route("/api/v1/inference", post(handlers::inference::async_infer))
-        .route("/api/v1/inference/:id", get(handlers::inference::get_task))
+        .route("/api/v1/inference/{id}", get(handlers::inference::get_task))
         .route(
-            "/api/v1/inference/:id",
+            "/api/v1/inference/{id}",
             delete(handlers::inference::cancel_task),
         )
         .route("/api/v1/inference", get(handlers::inference::list_tasks))
@@ -59,17 +59,17 @@ fn admin_routes() -> Router<AppState> {
     Router::new()
         .route("/users", post(handlers::admin::create_user))
         .route("/users", get(handlers::admin::list_users))
-        .route("/users/:id", delete(handlers::admin::delete_user))
-        .route("/users/:id", put(handlers::admin::update_user))
+        .route("/users/{id}", delete(handlers::admin::delete_user))
+        .route("/users/{id}", put(handlers::admin::update_user))
 }
 
 fn api_key_routes() -> Router<AppState> {
     Router::new()
         .route("/", post(handlers::api_key::create))
         .route("/", get(handlers::api_key::list))
-        .route("/:id", get(handlers::api_key::get))
-        .route("/:id", delete(handlers::api_key::revoke))
-        .route("/:id", put(handlers::api_key::update))
+        .route("/{id}", get(handlers::api_key::get))
+        .route("/{id}", delete(handlers::api_key::revoke))
+        .route("/{id}", put(handlers::api_key::update))
 }
 
 fn model_routes() -> Router<AppState> {
@@ -77,7 +77,7 @@ fn model_routes() -> Router<AppState> {
         .route("/upload", post(handlers::model::upload))
         .route("/register", post(handlers::model::register))
         .route("/", get(handlers::model::list))
-        .route("/:id", get(handlers::model::get))
-        .route("/:id", delete(handlers::model::delete))
-        .route("/:id", put(handlers::model::update))
+        .route("/{id}", get(handlers::model::get))
+        .route("/{id}", delete(handlers::model::delete))
+        .route("/{id}", put(handlers::model::update))
 }

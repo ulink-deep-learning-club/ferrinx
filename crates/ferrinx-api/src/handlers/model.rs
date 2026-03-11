@@ -162,7 +162,9 @@ pub async fn register(
     }
 
     let model_id = Uuid::new_v4();
+    let model_id_str = model_id.to_string();
     let model_data = state.storage.load(&req.file_path).await?;
+    let file_path = state.storage.save(&model_id_str, &model_data).await?;
 
     let is_valid;
     let validation_error;
@@ -188,7 +190,7 @@ pub async fn register(
         id: model_id,
         name: req.name,
         version: req.version,
-        file_path: req.file_path,
+        file_path,
         file_size: Some(model_data.len() as i64),
         storage_backend: "local".to_string(),
         input_shapes,

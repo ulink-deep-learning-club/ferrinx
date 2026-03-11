@@ -1,11 +1,10 @@
-use std::collections::HashMap;
+//
+#[path = "common/mod.rs"] mod common;
+
 use std::io::Write;
-use std::sync::Arc;
 use tempfile::NamedTempFile;
 
-mod fixtures;
-
-use fixtures::{TestApp, TestDb};
+use common::TestApp;
 use ferrinx_common::UserRole;
 
 fn create_test_config_file(api_url: &str, api_key: Option<&str>) -> NamedTempFile {
@@ -98,7 +97,8 @@ async fn test_http_client_post() {
 async fn test_http_client_delete() {
     let test_app = TestApp::new().await;
     let user = test_app.db.create_user("deluser", UserRole::User).await;
-    let (key_id, raw_key) = test_app.db.create_api_key(&user, "delete-key", false).await;
+    let (_, raw_key) = test_app.db.create_api_key(&user, "main-key", false).await;
+    let (key_to_delete, _) = test_app.db.create_api_key(&user, "delete-key", false).await;
     let (addr, _handle) = test_app.start_server().await;
 
     let config = ferrinx_cli::config::CliConfig {
@@ -111,12 +111,17 @@ async fn test_http_client_delete() {
 
     let client = ferrinx_cli::HttpClient::new(&config).unwrap();
 
-    let result: serde_json::Value = client
-        .delete(&format!("/api/v1/api-keys/{}", key_id))
-        .await
-        .unwrap();
+    let list_before: serde_json::Value = client.get("/api/v1/api-keys").await.unwrap();
+    let count_before = list_before.as_array().unwrap().len();
 
-    assert!(result.is_object());
+    let _ = client
+        .delete::<serde_json::Value>(&format!("/api/v1/api-keys/{}", key_to_delete))
+        .await;
+
+    let list_after: serde_json::Value = client.get("/api/v1/api-keys").await.unwrap();
+    let count_after = list_after.as_array().unwrap().len();
+
+    assert!(count_after < count_before);
 }
 
 #[tokio::test]
@@ -267,7 +272,7 @@ async fn test_model_operations_via_client() {
             &serde_json::json!({
                 "name": "cli-test-model",
                 "version": "1.0.0",
-                "file_path": "/models/cli-test.onnx"
+                "file_path": common::lenet_model_path()
             }),
         )
         .await
@@ -297,13 +302,14 @@ async fn test_inference_via_client() {
 
     let client = ferrinx_cli::HttpClient::new(&config).unwrap();
 
+    let input_data: Vec<f32> = vec![0.0; 1 * 1 * 28 * 28];
     let infer_result: serde_json::Value = client
         .post(
             "/api/v1/inference/sync",
             &serde_json::json!({
                 "model_id": model.id.to_string(),
                 "inputs": {
-                    "input": [1.0, 2.0, 3.0]
+                    "import/Placeholder:0": input_data
                 }
             }),
         )

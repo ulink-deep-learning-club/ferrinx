@@ -26,3 +26,10 @@ anyhow = { workspace = true }
 sha2 = { workspace = true }
 rand = { workspace = true }
 hex = "0.4"
+
+[dev-dependencies]
+ferrinx-cli = { path = "../ferrinx-cli" }
+tempfile = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+reqwest = { workspace = true }

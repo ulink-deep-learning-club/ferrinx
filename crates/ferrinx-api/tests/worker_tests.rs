@@ -1,33 +1,15 @@
+//
+#[path = "common/mod.rs"] mod common;
+
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
-use ferrinx_common::{OnnxConfig, Permissions, TaskStatus, UserRole};
+use ferrinx_common::{TaskStatus, UserRole};
+use futures::future::join_all;
 use uuid::Uuid;
 
-mod fixtures;
-
-use fixtures::{MockInferenceEngine, MockRedis, TestDb};
-
-struct TestWorkerContext {
-    db: Arc<ferrinx_db::DbContext>,
-    redis: Arc<MockRedis>,
-    engine: Arc<MockInferenceEngine>,
-}
-
-impl TestWorkerContext {
-    async fn new() -> Self {
-        let test_db = TestDb::new().await;
-        let redis = Arc::new(MockRedis::new());
-        let engine = Arc::new(MockInferenceEngine::with_default_response());
-
-        Self {
-            db: test_db.db,
-            redis,
-            engine,
-        }
-    }
-}
+use common::{MockInferenceEngine, MockRedis, TestDb};
+use common::mock_redis::RedisClient;
 
 #[tokio::test]
 async fn test_task_message_extraction() {
@@ -132,8 +114,7 @@ async fn test_redis_dead_letter_queue() {
 
 #[tokio::test]
 async fn test_engine_successful_inference() {
-    let config = OnnxConfig::default();
-    let engine = MockInferenceEngine::new(&config);
+    let engine = MockInferenceEngine::new(5);
 
     let input = ferrinx_common::InferenceInput {
         inputs: HashMap::from([("input".to_string(), serde_json::json!([1.0, 2.0, 3.0]))]),
@@ -148,8 +129,7 @@ async fn test_engine_successful_inference() {
 
 #[tokio::test]
 async fn test_engine_failed_inference() {
-    let config = OnnxConfig::default();
-    let engine = MockInferenceEngine::new(&config);
+    let engine = MockInferenceEngine::new(5);
 
     engine.set_should_fail(true).await;
 
@@ -164,8 +144,7 @@ async fn test_engine_failed_inference() {
 
 #[tokio::test]
 async fn test_engine_custom_response() {
-    let config = OnnxConfig::default();
-    let engine = MockInferenceEngine::new(&config);
+    let engine = MockInferenceEngine::new(5);
 
     let custom_output = ferrinx_common::InferenceOutput {
         outputs: HashMap::from([(
@@ -190,11 +169,7 @@ async fn test_engine_custom_response() {
 
 #[tokio::test]
 async fn test_engine_concurrency() {
-    let config = OnnxConfig {
-        cache_size: 2,
-        ..Default::default()
-    };
-    let engine = Arc::new(MockInferenceEngine::new(&config));
+    let engine = Arc::new(MockInferenceEngine::new(2));
 
     engine.set_delay_ms(50).await;
 
@@ -211,7 +186,7 @@ async fn test_engine_concurrency() {
         handles.push(handle);
     }
 
-    let results: Vec<_> = futures::future::join_all(handles).await;
+    let results: Vec<_> = join_all(handles).await;
 
     for result in results {
         assert!(result.unwrap().is_ok());

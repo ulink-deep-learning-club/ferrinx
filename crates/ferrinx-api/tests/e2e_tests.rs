@@ -1,12 +1,11 @@
-use std::collections::HashMap;
-use std::time::Duration;
+//
+#[path = "common/mod.rs"] mod common;
 
 use ferrinx_common::UserRole;
 use serde_json::json;
+use futures::future::join_all;
 
-mod fixtures;
-
-use fixtures::{TestApp, TestDb};
+use common::TestApp;
 
 #[tokio::test]
 async fn test_e2e_bootstrap_and_login() {
@@ -128,7 +127,7 @@ async fn test_e2e_model_management() {
         .json(&json!({
             "name": "e2e-test-model",
             "version": "1.0.0",
-            "file_path": "/models/e2e-test.onnx"
+            "file_path": common::lenet_model_path()
         }))
         .send()
         .await
@@ -179,13 +178,14 @@ async fn test_e2e_sync_inference_workflow() {
 
     let client = reqwest::Client::new();
 
+    let input_data: Vec<f32> = vec![0.0; 1 * 1 * 28 * 28];
     let infer_response = client
         .post(format!("http://{}/api/v1/inference/sync", addr))
         .bearer_auth(&raw_key)
         .json(&json!({
             "model_id": model.id.to_string(),
             "inputs": {
-                "input": [1.0, 2.0, 3.0, 4.0]
+                "import/Placeholder:0": input_data
             }
         }))
         .send()
@@ -370,7 +370,7 @@ async fn test_e2e_concurrent_requests() {
         handles.push(handle);
     }
 
-    let results: Vec<_> = futures::future::join_all(handles).await;
+    let results: Vec<_> = join_all(handles).await;
     for result in results {
         assert!(result.unwrap());
     }
@@ -427,7 +427,7 @@ async fn test_e2e_complete_workflow() {
         .json(&json!({
             "name": "workflow-model",
             "version": "1.0.0",
-            "file_path": "/models/workflow.onnx"
+            "file_path": common::lenet_model_path()
         }))
         .send()
         .await
@@ -438,12 +438,13 @@ async fn test_e2e_complete_workflow() {
 
     let model_id = model["data"]["id"].as_str().unwrap();
 
+    let input_data: Vec<f32> = vec![0.0; 1 * 1 * 28 * 28];
     let infer: serde_json::Value = client
         .post(format!("http://{}/api/v1/inference/sync", addr))
         .bearer_auth(admin_key)
         .json(&json!({
             "model_id": model_id,
-            "inputs": {"input": [1.0, 2.0]}
+            "inputs": {"import/Placeholder:0": input_data}
         }))
         .send()
         .await

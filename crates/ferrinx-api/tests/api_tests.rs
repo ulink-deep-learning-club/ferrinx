@@ -1,22 +1,10 @@
-use std::collections::HashMap;
-use std::io::Write;
-use std::sync::Arc;
+//
+#[path = "common/mod.rs"] mod common;
 
-use ferrinx_common::{OnnxConfig, Permissions, UserRole};
+use ferrinx_common::UserRole;
 use serde_json::json;
-use tempfile::NamedTempFile;
-use uuid::Uuid;
 
-mod fixtures;
-
-use fixtures::{MockInferenceEngine, MockRedis, TestDb};
-
-fn hash_password(password: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(password.as_bytes());
-    format!("{:x}", hasher.finalize())
-}
+use common::TestApp;
 
 #[tokio::test]
 async fn test_health_endpoint() {
@@ -222,7 +210,7 @@ async fn test_model_registration() {
         .json(&json!({
             "name": "test-model",
             "version": "1.0.0",
-            "file_path": "/models/test.onnx"
+            "file_path": common::lenet_model_path()
         }))
         .send()
         .await
@@ -266,6 +254,10 @@ async fn test_sync_inference() {
     let model = test_app.db.create_model("test-model", "1.0").await;
     let (addr, _handle) = test_app.start_server().await;
 
+    // LeNet expects a 1x1x28x28 tensor (batch, channels, height, width)
+    // Input name from ONNX model is "import/Placeholder:0"
+    let input_data: Vec<f32> = vec![0.0; 1 * 1 * 28 * 28];
+
     let client = reqwest::Client::new();
     let response = client
         .post(format!("http://{}/api/v1/inference/sync", addr))
@@ -273,7 +265,7 @@ async fn test_sync_inference() {
         .json(&json!({
             "model_id": model.id.to_string(),
             "inputs": {
-                "input": [1.0, 2.0, 3.0]
+                "import/Placeholder:0": input_data
             }
         }))
         .send()
