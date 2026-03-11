@@ -66,15 +66,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = Arc::new(InferenceEngine::new(&config.onnx)?);
 
     info!("Initializing storage...");
-    let storage: Arc<dyn ferrinx_core::ModelStorage> = match &config.storage.backend {
-        ferrinx_common::StorageBackend::Local => {
-            let path = config.storage.path.as_deref().unwrap_or("./models");
-            Arc::new(LocalStorage::new(path)?)
-        }
-        ferrinx_common::StorageBackend::S3 => {
-            return Err("S3 storage not yet implemented".into());
-        }
-    };
+    let path = config.storage.path.as_deref().unwrap_or("./models");
+    let storage: Arc<dyn ferrinx_core::ModelStorage> = Arc::new(LocalStorage::new(path)?);
 
     let loader = Arc::new(ModelLoader::new(storage.clone()));
 

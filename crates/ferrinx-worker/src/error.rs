@@ -39,6 +39,7 @@ pub enum WorkerError {
     #[error("Worker shutdown")]
     Shutdown,
 
+    #[allow(dead_code)]
     #[error("Configuration error: {0}")]
     ConfigError(String),
 }
@@ -94,8 +95,11 @@ mod tests {
 
     #[test]
     fn test_config_error_display() {
-        let error = WorkerError::ConfigError("Invalid URL".to_string());
-        assert_eq!(format!("{}", error), "Configuration error: Invalid URL");
+        let error = WorkerError::ConfigError("Invalid configuration".to_string());
+        assert_eq!(
+            format!("{}", error),
+            "Configuration error: Invalid configuration"
+        );
     }
 
     #[test]

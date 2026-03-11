@@ -92,19 +92,13 @@ pub struct StorageConfig {
     pub backend: StorageBackend,
     #[serde(default)]
     pub path: Option<String>,
-    #[serde(default)]
-    pub bucket: Option<String>,
-    #[serde(default)]
-    pub region: Option<String>,
-    #[serde(default)]
-    pub endpoint: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum StorageBackend {
+    #[default]
     Local,
-    S3,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -250,9 +244,6 @@ impl Config {
             storage: StorageConfig {
                 backend: StorageBackend::Local,
                 path: Some("./models".to_string()),
-                bucket: None,
-                region: None,
-                endpoint: None,
             },
             onnx: OnnxConfig {
                 cache_size: 5,

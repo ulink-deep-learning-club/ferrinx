@@ -14,7 +14,7 @@ A high-performance ONNX inference backend service built in Rust, featuring both 
   - With Redis: full distributed async inference
 - **High Performance**: Built on `ort` (ONNX Runtime bindings for Rust) with `spawn_blocking` for CPU-intensive inference
 - **Scalable Architecture**: Independent worker processes with model-aware task distribution
-- **Flexible Storage**: Local filesystem and S3 storage backends for model files
+- **Flexible Storage**: Local filesystem storage for model files (pre-distributed models)
 - **Database Agnostic**: PostgreSQL for production, SQLite for development/testing
 - **API Key Authentication**: Secure authentication with Redis caching and database fallback
 - **CLI Client**: Lightweight command-line tool for administration and inference
@@ -366,7 +366,7 @@ For high-availability and scaling:
 - Multiple API servers behind load balancer (consistent hashing for sync inference)
 - Multiple workers consuming from Redis Streams
 - Redis Cluster for HA
-- S3/NFS for shared model storage
+- NFS/shared storage for model files
 
 ## Security
 
@@ -389,7 +389,6 @@ The following features are planned but not yet fully implemented. Contributions 
 
 | Feature | Location | Description |
 |---------|----------|-------------|
-| S3 Storage Backend | `ferrinx-core/src/storage/` | Returns "not yet implemented" error. Needed for distributed deployments. |
 | GPU Execution Providers | `ferrinx-core/src/inference/engine.rs` | CUDA and TensorRT execution providers are defined but not configured. |
 | NMS Postprocessing | `ferrinx-core/src/transform/pipeline.rs:298` | Non-Maximum Suppression for object detection models returns unsupported error. |
 

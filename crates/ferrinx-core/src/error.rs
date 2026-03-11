@@ -74,9 +74,6 @@ pub enum StorageError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 
-    #[error("S3 error: {0}")]
-    S3Error(String),
-
     #[error("Invalid path: {0}")]
     InvalidPath(String),
 
@@ -197,12 +194,6 @@ mod tests {
         let io_error = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let storage_error = StorageError::IoError(io_error);
         assert!(storage_error.to_string().contains("IO error"));
-    }
-
-    #[test]
-    fn test_storage_error_s3() {
-        let error = StorageError::S3Error("Access denied".to_string());
-        assert_eq!(format!("{}", error), "S3 error: Access denied");
     }
 
     #[test]

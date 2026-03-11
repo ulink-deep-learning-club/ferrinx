@@ -57,17 +57,8 @@ impl WorkerContext {
                 .with_callbacks(on_evict, on_load)
         );
 
-        let storage: Arc<dyn ferrinx_core::ModelStorage> = match &config.storage.backend {
-            ferrinx_common::StorageBackend::Local => {
-                let path = config.storage.path.as_deref().unwrap_or("./models");
-                Arc::new(ferrinx_core::LocalStorage::new(path)?)
-            }
-            ferrinx_common::StorageBackend::S3 => {
-                return Err(WorkerError::ConfigError(
-                    "S3 storage not yet implemented".to_string(),
-                ));
-            }
-        };
+        let path = config.storage.path.as_deref().unwrap_or("./models");
+        let storage: Arc<dyn ferrinx_core::ModelStorage> = Arc::new(ferrinx_core::LocalStorage::new(path)?);
 
         Ok(Self {
             config,

@@ -124,7 +124,7 @@ pub struct StorageConfig {
 #[serde(rename_all = "lowercase")]
 pub enum StorageBackend {
     Local,
-    S3,
+    // S3 - 推迟到将来实现
 }
 
 #[derive(Debug, Clone, Deserialize)]

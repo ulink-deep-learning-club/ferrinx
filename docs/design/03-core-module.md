@@ -13,7 +13,7 @@
 - CPU 密集推理使用 `spawn_blocking`
 - 并发限制使用 `Semaphore`
 - LRU 缓存减少模型加载延迟
-- 存储后端可插拔（Local/S3）
+- 本地文件存储（S3 存储设计保留，待将来实现）
 
 ## 2. 核心结构设计
 
@@ -1052,6 +1052,9 @@ impl ModelStorage for LocalStorage {
 }
 
 /// S3 存储实现（可选）
+/// 
+/// 注意：S3 存储已推迟到将来实现。
+/// 当前仅支持本地文件存储。保留此设计供将来参考。
 #[cfg(feature = "s3-storage")]
 pub struct S3Storage {
     bucket: String,
@@ -1246,8 +1249,9 @@ pub enum StorageError {
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
     
-    #[error("S3 error: {0}")]
-    S3Error(String),
+    // S3Error 保留供将来 S3 存储实现使用
+    // #[error("S3 error: {0}")]
+    // S3Error(String),
     
     #[error("Invalid path: {0}")]
     InvalidPath(String),

@@ -71,22 +71,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 初始化推理引擎
     let engine = Arc::new(InferenceEngine::new(&config.onnx)?);
     
-    // 初始化存储
-    let storage: Arc<dyn ModelStorage> = match &config.storage.backend {
-        StorageBackend::Local => {
-            Arc::new(LocalStorage::new(config.storage.path.as_deref().unwrap_or("./models"))?)
-        }
-        StorageBackend::S3 => {
-            #[cfg(feature = "s3-storage")]
-            {
-                Arc::new(S3Storage::new(&config.storage).await?)
-            }
-            #[cfg(not(feature = "s3-storage"))]
-            {
-                return Err("S3 storage not enabled".into());
-            }
-        }
-    };
+    // 初始化存储（当前仅支持本地存储）
+    let storage: Arc<dyn ModelStorage> = Arc::new(
+        LocalStorage::new(config.storage.path.as_deref().unwrap_or("./models"))?
+    );
     
     let loader = Arc::new(ModelLoader::new(storage.clone()));
     
