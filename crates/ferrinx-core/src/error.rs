@@ -29,6 +29,9 @@ pub enum CoreError {
     #[error("Input not found: {0}")]
     InputNotFound(String),
 
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
     #[error("Unsupported tensor type")]
     UnsupportedTensorType,
 

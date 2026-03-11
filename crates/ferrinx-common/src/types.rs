@@ -5,6 +5,37 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+pub enum ModelState {
+    Cached,
+    Available,
+}
+
+impl ModelState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ModelState::Cached => "cached",
+            ModelState::Available => "available",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "cached" => Some(ModelState::Cached),
+            "available" => Some(ModelState::Available),
+            _ => None,
+        }
+    }
+
+    pub fn priority_score(&self) -> i64 {
+        match self {
+            ModelState::Cached => 0,
+            ModelState::Available => 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum UserRole {
     User,
     Admin,

@@ -39,6 +39,9 @@ pub enum ApiError {
     #[error("Redis unavailable")]
     RedisUnavailable,
 
+    #[error("No worker available for this model")]
+    NoWorkerAvailable,
+
     #[error("User not found")]
     UserNotFound,
 
@@ -73,7 +76,7 @@ pub enum ApiError {
     UuidError(#[from] uuid::Error),
 
     #[error("Redis error: {0}")]
-    RedisError(#[from] ferrinx_common::RedisError),
+    RedisError(String),
 }
 
 impl IntoResponse for ApiError {
@@ -98,6 +101,10 @@ impl IntoResponse for ApiError {
             ApiError::RedisUnavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 ErrorCode::ServiceUnavailable,
+            ),
+            ApiError::NoWorkerAvailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorCode::NoWorkerAvailable,
             ),
             ApiError::DatabaseError(_)
             | ApiError::CoreError(_)

@@ -4,16 +4,28 @@ A high-performance ONNX inference backend service built in Rust, featuring both 
 
 ## Features
 
-- **Dual Inference Modes**: Synchronous inference for low-latency scenarios (<100ms), asynchronous inference for batch processing and large models
+- **Dual Inference Modes**: 
+  - Sync: Low-latency (<100ms), runs in API process, local models only
+  - Async: Distributed, routes to best available Worker, supports model routing
+- **Intelligent Model Routing**: Async tasks are routed to Workers based on model availability:
+  - Priority: cached → available → error
+- **Graceful Degradation**: 
+  - Without Redis: operates as simple inference engine (sync only)
+  - With Redis: full distributed async inference
 - **High Performance**: Built on `ort` (ONNX Runtime bindings for Rust) with `spawn_blocking` for CPU-intensive inference
-- **Scalable Architecture**: Independent worker processes for asynchronous inference, horizontal scaling support
+- **Scalable Architecture**: Independent worker processes with model-aware task distribution
 - **Flexible Storage**: Local filesystem and S3 storage backends for model files
 - **Database Agnostic**: PostgreSQL for production, SQLite for development/testing
-- **Redis Integration**: Redis Streams for task queuing with automatic failover to database
 - **API Key Authentication**: Secure authentication with Redis caching and database fallback
 - **CLI Client**: Lightweight command-line tool for administration and inference
 
 ## Architecture
+
+Ferrinx supports two deployment modes:
+
+### Simplified Mode (No Redis)
+
+When Redis is unavailable, Ferrinx operates as a simple inference engine with HTTP interface:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -23,28 +35,78 @@ A high-performance ONNX inference backend service built in Rust, featuring both 
            │ HTTP/JSON                 │ HTTP/JSON
            ▼                           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                      API Gateway Layer                      │
-│                   API Server (axum)                         │
-│  - API Key Validation (Redis + DB fallback)                 │
-│  - Sync Inference (stateful, model cache)                   │
-│  - Async Inference (push to Redis Streams)                  │
+│                      API Server (axum)                      │
+│  - API Key Validation (DB only)                             │
+│  - Sync Inference ✅ (in-process)                           │
+│  - Async Inference ❌ (unavailable)                         │
+│  - InferenceEngine + Model Storage                          │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   Infrastructure Layer                      │
+│        Database (PG/SQLite)        Model Storage (Local)    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Full Mode (With Redis)
+
+With Redis, Ferrinx provides distributed async inference with intelligent model routing:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Client Layer                         │
+│       CLI Tool                RESTful Client                │
+└──────────┬───────────────────────────┬──────────────────────┘
+           │ HTTP/JSON                 │ HTTP/JSON
+           ▼                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      API Server (axum)                      │
+│  - API Key Validation (Redis cache + DB fallback)           │
+│  - Sync Inference ✅ (in-process, local models only)        │
+│  - Async Inference ✅ (route to Workers via Redis)          │
+│  - Model Routing: task → best available Worker              │
 └──────────────────────────┬──────────────────────────────────┘
                            │
            ┌───────────────┴───────────────┐
            ▼                               ▼
 ┌──────────────────────┐    ┌──────────────────────────────────┐
 │  Sync Inference      │    │     Async Inference Path         │
-│  (Low Latency)       │    │  Redis Streams → Worker Pool     │
-│  - In-process cache  │    │  - Consumer group mode           │
-│  - Semaphore limit   │    │  - Automatic task distribution   │
-└──────────────────────┘    └──────────────────────────────────┘
+│  (Low Latency)       │    │                                  │
+│  - In-process cache  │    │  Redis Streams (model-specific)  │
+│  - Local models only │    │         ↓                        │
+└──────────────────────┘    │  Worker Pool (model-aware)       │
+                            │  - Worker A: models [X, Y]       │
+                            │  - Worker B: models [Y, Z]       │
+                            │  - Worker C: models [X, Z]       │
+                            └──────────────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                   Infrastructure Layer                      │
 │  Redis (Streams/Cache)  Database (PG/SQLite)  Model Storage │
-│  ONNX Runtime (ort)                                         │
 └─────────────────────────────────────────────────────────────┘
+```
+
+### Model Routing Strategy (Async Inference Only)
+
+When submitting an async inference task, the system routes it to the best available Worker:
+
+1. **Priority 1**: Worker with model already cached in memory (fastest)
+2. **Priority 2**: Worker with model file available (needs loading)
+3. **No Worker available**: Returns error `NO_WORKER_AVAILABLE`
+
+Workers report their model status to Redis:
+- Which models they have access to (file exists)
+- Which models are cached in memory
+
+```
+Redis Key: ferrinx:workers:{worker_id}:models
+Value: {
+  "model_uuid_1": "cached",    # loaded in memory
+  "model_uuid_2": "available", # file exists, not loaded
+  "model_uuid_3": "available"
+}
 ```
 
 ## Project Structure

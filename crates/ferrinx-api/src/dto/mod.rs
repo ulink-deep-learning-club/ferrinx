@@ -26,6 +26,7 @@ pub enum ErrorCode {
     InvalidInput,
     RateLimitExceeded,
     ServiceUnavailable,
+    NoWorkerAvailable,
     InternalError,
 }
 
@@ -40,6 +41,7 @@ impl ErrorCode {
             ErrorCode::InvalidInput => "INVALID_INPUT",
             ErrorCode::RateLimitExceeded => "RATE_LIMIT_EXCEEDED",
             ErrorCode::ServiceUnavailable => "SERVICE_UNAVAILABLE",
+            ErrorCode::NoWorkerAvailable => "NO_WORKER_AVAILABLE",
             ErrorCode::InternalError => "INTERNAL_ERROR",
         }
     }

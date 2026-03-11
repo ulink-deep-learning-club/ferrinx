@@ -6,6 +6,8 @@
 - 从 Redis Streams 消费任务
 - 执行异步推理
 - 存储推理结果
+- **上报模型状态到 Redis**（新增）
+- **支持模型感知的任务消费**（新增）
 - 支持重试和死信队列
 - 优雅停机
 
@@ -13,7 +15,146 @@
 - 消费组模式（XREADGROUP）
 - 多 Worker 并行消费
 - 任务自动重新分配（Worker 宕机时）
+- **模型路由：任务优先路由到已缓存模型的 Worker**（新增）
 - 本地模型缓存（LRU）
+
+## 2. 模型路由机制
+
+### 2.1 设计目标
+
+当多个 Worker 分布于不同机器，且模型文件分布不均匀时：
+- 任务应优先被路由到已缓存该模型的 Worker
+- 其次路由到有模型文件但未缓存的 Worker
+- 如果没有 Worker 拥有该模型，返回错误
+
+### 2.2 模型状态定义
+
+```rust
+enum ModelState {
+    Cached,    // 模型已加载到内存（最快）
+    Available, // 模型文件存在但未加载（需加载）
+    NotFound,  // 模型不存在
+}
+```
+
+### 2.3 Redis 数据结构
+
+**Worker 模型状态存储**：
+```
+Key: ferrinx:workers:{worker_id}:models
+Type: Hash
+Value: {
+  "model_uuid_1": "cached",
+  "model_uuid_2": "available",
+  "model_uuid_3": "available"
+}
+TTL: 30s（Worker 心跳刷新）
+```
+
+**Worker 心跳**：
+```
+Key: ferrinx:workers:{worker_id}:heartbeat
+Type: String
+Value: timestamp
+TTL: 60s
+```
+
+**模型到 Worker 映射（反向索引）**：
+```
+Key: ferrinx:models:{model_id}:workers
+Type: Sorted Set
+Score: 优先级分数（cached=0, available=1）
+Member: worker_id
+TTL: 随 Worker 心跳刷新
+```
+
+### 2.4 路由流程
+
+```
+API 接收异步推理请求
+    │
+    ▼
+查询 Redis: ferrinx:models:{model_id}:workers
+    │
+    ├─ 找到 cached Worker (score=0) → 推送到该 Worker 的专属 Stream
+    │
+    ├─ 找到 available Worker (score=1) → 推送到该 Worker 的专属 Stream
+    │
+    └─ 无 Worker → 返回错误 NO_WORKER_AVAILABLE
+```
+
+### 2.5 Worker 模型状态上报
+
+Worker 启动时和运行期间定期上报：
+
+```rust
+// 启动时扫描本地模型
+async fn scan_local_models(&self) -> Result<HashSet<Uuid>> {
+    let models = self.db.models.list_valid().await?;
+    let mut available = HashSet::new();
+    
+    for model in models {
+        if self.storage.exists(&model.file_path).await? {
+            available.insert(model.id);
+        }
+    }
+    
+    Ok(available)
+}
+
+// 定期上报（每 10 秒）
+async fn report_model_status(&self, cached_models: &HashSet<Uuid>) -> Result<()> {
+    let available_models = self.scan_local_models().await?;
+    
+    let mut status = HashMap::new();
+    for model_id in &available_models {
+        if cached_models.contains(model_id) {
+            status.insert(model_id.to_string(), "cached");
+        } else {
+            status.insert(model_id.to_string(), "available");
+        }
+    }
+    
+    // 写入 Redis
+    self.redis.set_worker_models(&self.worker_id, &status).await?;
+    self.redis.set_worker_heartbeat(&self.worker_id).await?;
+    
+    Ok(())
+}
+```
+
+### 2.6 任务 Stream 分配
+
+每个 Worker 有专属的 Stream，按模型路由：
+
+```
+通用 Stream（降级用）:
+- ferrinx:tasks:high
+- ferrinx:tasks:normal
+- ferrinx:tasks:low
+
+Worker 专属 Stream（模型路由）:
+- ferrinx:worker:{worker_id}:tasks
+```
+
+任务推送逻辑：
+```rust
+async fn push_task_with_routing(&self, task: &InferenceTask) -> Result<()> {
+    // 查找最优 Worker
+    let workers = self.redis.get_model_workers(&task.model_id).await?;
+    
+    if let Some(best_worker) = workers.first() {
+        // 推送到 Worker 专属 Stream
+        let stream = format!("ferrinx:worker:{}:tasks", best_worker);
+        self.redis.xadd(&stream, &task.to_map()).await?;
+    } else {
+        // 无 Worker 有模型
+        return Err(RedisError::NoWorkerAvailable);
+    }
+    
+    Ok(())
+}
+```
 
 ## 2. 核心结构设计
 

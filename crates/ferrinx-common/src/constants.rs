@@ -18,6 +18,7 @@ pub enum ErrorCode {
     ServiceUnavailable,
     RedisUnavailable,
     RateLimitExceeded,
+    NoWorkerAvailable,
 }
 
 impl ErrorCode {
@@ -41,6 +42,7 @@ impl ErrorCode {
             ErrorCode::ServiceUnavailable => "SERVICE_UNAVAILABLE",
             ErrorCode::RedisUnavailable => "REDIS_UNAVAILABLE",
             ErrorCode::RateLimitExceeded => "RATE_LIMIT_EXCEEDED",
+            ErrorCode::NoWorkerAvailable => "NO_WORKER_AVAILABLE",
         }
     }
 
@@ -59,7 +61,9 @@ impl ErrorCode {
             | ErrorCode::TaskNotCancellable => 400,
             ErrorCode::InferenceFailed | ErrorCode::InternalError => 500,
             ErrorCode::InferenceTimeout => 504,
-            ErrorCode::ServiceUnavailable | ErrorCode::RedisUnavailable => 503,
+            ErrorCode::ServiceUnavailable
+            | ErrorCode::RedisUnavailable
+            | ErrorCode::NoWorkerAvailable => 503,
             ErrorCode::RateLimitExceeded => 429,
         }
     }
@@ -79,3 +83,13 @@ pub const REDIS_DEAD_LETTER_STREAM: &str = "ferrinx:tasks:dead_letter";
 pub const REDIS_CONSUMER_GROUP: &str = "ferrinx-workers";
 pub const REDIS_RESULT_CACHE_PREFIX: &str = "ferrinx:results";
 pub const REDIS_API_KEY_STORE: &str = "ferrinx:api_keys";
+
+pub const REDIS_WORKER_MODELS_PREFIX: &str = "ferrinx:workers";
+pub const REDIS_WORKER_HEARTBEAT_SUFFIX: &str = "heartbeat";
+pub const REDIS_WORKER_MODELS_SUFFIX: &str = "models";
+pub const REDIS_MODEL_WORKERS_PREFIX: &str = "ferrinx:models";
+pub const REDIS_MODEL_WORKERS_SUFFIX: &str = "workers";
+
+pub const REDIS_WORKER_HEARTBEAT_TTL_SECS: u64 = 60;
+pub const REDIS_WORKER_MODELS_TTL_SECS: u64 = 30;
+pub const WORKER_STATUS_REPORT_INTERVAL_SECS: u64 = 10;

@@ -94,7 +94,7 @@ impl TaskProcessor {
 
         let output = self
             .engine
-            .infer(&model.id.to_string(), &model.file_path, input)
+            .infer(&model.id, &model.file_path, input)
             .await?;
 
         Ok(output.outputs)

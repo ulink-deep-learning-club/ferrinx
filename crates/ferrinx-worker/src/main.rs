@@ -9,12 +9,14 @@ use tracing_subscriber::fmt::format::FmtSpan;
 mod consumer;
 mod error;
 mod maintenance;
+mod model_reporter;
 mod processor;
 mod redis;
 
 use consumer::TaskConsumer;
 use error::{Result, WorkerError};
 use maintenance::MaintenanceRunner;
+use model_reporter::ModelReporter;
 use processor::TaskProcessor;
 use redis::RedisClient;
 
@@ -24,6 +26,7 @@ struct WorkerContext {
     redis: Arc<dyn RedisClient>,
     engine: Arc<ferrinx_core::InferenceEngine>,
     storage: Arc<dyn ferrinx_core::ModelStorage>,
+    cached_models: model_reporter::CachedModelsRef,
 }
 
 impl WorkerContext {
@@ -32,7 +35,27 @@ impl WorkerContext {
 
         let redis = redis::create_redis_client(&config.redis.url)?;
 
-        let engine = Arc::new(ferrinx_core::InferenceEngine::new(&config.onnx)?);
+        let cached_models: model_reporter::CachedModelsRef = 
+            Arc::new(std::sync::RwLock::new(std::collections::HashSet::new()));
+
+        let cached_models_clone = cached_models.clone();
+        let on_load = Some(std::sync::Arc::new(move |model_id: uuid::Uuid| {
+            if let Ok(mut set) = cached_models_clone.write() {
+                set.insert(model_id);
+            }
+        }) as ferrinx_core::CacheLoadCallback);
+
+        let cached_models_clone = cached_models.clone();
+        let on_evict = Some(std::sync::Arc::new(move |model_id: uuid::Uuid| {
+            if let Ok(mut set) = cached_models_clone.write() {
+                set.remove(&model_id);
+            }
+        }) as ferrinx_core::CacheEvictCallback);
+
+        let engine = Arc::new(
+            ferrinx_core::InferenceEngine::new(&config.onnx)?
+                .with_callbacks(on_evict, on_load)
+        );
 
         let storage: Arc<dyn ferrinx_core::ModelStorage> = match &config.storage.backend {
             ferrinx_common::StorageBackend::Local => {
@@ -52,6 +75,7 @@ impl WorkerContext {
             redis,
             engine,
             storage,
+            cached_models,
         })
     }
 }
@@ -116,6 +140,22 @@ async fn run_worker(
         ctx.config.worker.max_retries,
         ctx.config.worker.retry_delay_ms,
     ));
+
+    let model_reporter = Arc::new(
+        ModelReporter::new(
+            consumer_name.clone(),
+            ctx.redis.clone(),
+            ctx.storage.clone(),
+            ctx.db.clone(),
+            ferrinx_common::constants::WORKER_STATUS_REPORT_INTERVAL_SECS,
+        )
+        .with_cached_models(ctx.cached_models.clone())
+    );
+
+    let reporter_token = shutdown.child_token();
+    tokio::spawn(async move {
+        model_reporter.run(reporter_token).await;
+    });
 
     let current_tasks = Arc::new(AtomicUsize::new(0));
     let poll_interval = Duration::from_millis(ctx.config.worker.poll_interval_ms);

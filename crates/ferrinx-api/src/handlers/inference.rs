@@ -85,7 +85,7 @@ pub async fn sync_infer(
     }
 
     let input = ferrinx_common::InferenceInput { inputs: req.inputs };
-    let output = state.engine.infer(&req.model_id, &model.file_path, input).await?;
+    let output = state.engine.infer(&model_id, &model.file_path, input).await?;
 
     let api_key_id = api_key.id;
     let db = state.db.clone();
@@ -108,9 +108,7 @@ pub async fn async_infer(
         return Err(ApiError::PermissionDenied);
     }
 
-    if state.redis.is_none() {
-        return Err(ApiError::RedisUnavailable);
-    }
+    let redis = state.redis.as_ref().ok_or(ApiError::RedisUnavailable)?;
 
     let model_id = Uuid::parse_str(&req.model_id)?;
     let model = state
@@ -123,6 +121,9 @@ pub async fn async_infer(
     if !model.is_valid {
         return Err(ApiError::ModelNotValid);
     }
+
+    let best_worker = redis.get_best_worker_for_model(&model.id).await
+        .map_err(|e| ApiError::RedisError(e.to_string()))?;
 
     let task_id = Uuid::new_v4();
     let task = ferrinx_common::InferenceTask {
@@ -147,9 +148,9 @@ pub async fn async_infer(
 
     state.db.tasks.save(&task).await?;
 
-    if let Some(ref redis) = state.redis {
-        redis.push_task(&task).await?;
-    }
+    let worker_id = best_worker.ok_or(ApiError::NoWorkerAvailable)?;
+    redis.push_task_to_worker(&worker_id, &task).await
+        .map_err(|e| ApiError::RedisError(e.to_string()))?;
 
     Ok(Json(ApiResponse::success(AsyncInferResponse {
         task_id: task_id.to_string(),

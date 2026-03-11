@@ -547,6 +547,197 @@ impl RedisClient {
         let _: () = conn.del(key).await?;
         Ok(())
     }
+
+    pub async fn set_worker_heartbeat(&self, worker_id: &str) -> Result<(), RedisError> {
+        use crate::constants::{REDIS_WORKER_HEARTBEAT_TTL_SECS, REDIS_WORKER_MODELS_PREFIX, REDIS_WORKER_HEARTBEAT_SUFFIX};
+        
+        let key = format!("{}:{}:{}", REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_HEARTBEAT_SUFFIX);
+        let mut conn = self.conn.clone();
+        
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        let _: () = conn.set_ex(&key, timestamp, REDIS_WORKER_HEARTBEAT_TTL_SECS).await?;
+        
+        debug!("Set heartbeat for worker {}", worker_id);
+        Ok(())
+    }
+
+    pub async fn set_worker_models(
+        &self,
+        worker_id: &str,
+        models: &HashMap<String, String>,
+    ) -> Result<(), RedisError> {
+        use crate::constants::{REDIS_WORKER_MODELS_PREFIX, REDIS_WORKER_MODELS_SUFFIX, REDIS_WORKER_MODELS_TTL_SECS};
+        use crate::types::ModelState;
+        
+        let key = format!("{}:{}:{}", REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_MODELS_SUFFIX);
+        let mut conn = self.conn.clone();
+        
+        let _: () = conn.del(&key).await?;
+        
+        if !models.is_empty() {
+            let mut cmd = redis::cmd("HMSET");
+            cmd.arg(&key);
+            for (model_id, state) in models {
+                cmd.arg(model_id).arg(state);
+            }
+            let _: () = cmd.query_async(&mut conn).await?;
+            
+            let _: () = conn.expire(&key, REDIS_WORKER_MODELS_TTL_SECS as i64).await?;
+        }
+        
+        for (model_id, state_str) in models {
+            if let Some(state) = ModelState::from_str(state_str) {
+                let model_workers_key = format!(
+                    "{}:{}:{}",
+                    crate::constants::REDIS_MODEL_WORKERS_PREFIX,
+                    model_id,
+                    crate::constants::REDIS_MODEL_WORKERS_SUFFIX
+                );
+                let score = state.priority_score();
+                let _: () = redis::cmd("ZADD")
+                    .arg(&model_workers_key)
+                    .arg(score)
+                    .arg(worker_id)
+                    .query_async(&mut conn)
+                    .await?;
+                
+                let _: () = conn.expire(&model_workers_key, REDIS_WORKER_MODELS_TTL_SECS as i64).await?;
+            }
+        }
+        
+        debug!("Set models for worker {}: {} models", worker_id, models.len());
+        Ok(())
+    }
+
+    pub async fn get_worker_models(&self, worker_id: &str) -> Result<HashMap<String, String>, RedisError> {
+        use crate::constants::{REDIS_WORKER_MODELS_PREFIX, REDIS_WORKER_MODELS_SUFFIX};
+        
+        let key = format!("{}:{}:{}", REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_MODELS_SUFFIX);
+        let mut conn = self.conn.clone();
+        
+        let result: HashMap<String, String> = redis::cmd("HGETALL")
+            .arg(&key)
+            .query_async(&mut conn)
+            .await?;
+        
+        Ok(result)
+    }
+
+    pub async fn get_model_workers(&self, model_id: &Uuid) -> Result<Vec<String>, RedisError> {
+        use crate::constants::{REDIS_MODEL_WORKERS_PREFIX, REDIS_MODEL_WORKERS_SUFFIX};
+        
+        let key = format!(
+            "{}:{}:{}",
+            REDIS_MODEL_WORKERS_PREFIX,
+            model_id,
+            REDIS_MODEL_WORKERS_SUFFIX
+        );
+        let mut conn = self.conn.clone();
+        
+        let workers: Vec<(i64, String)> = redis::cmd("ZRANGE")
+            .arg(&key)
+            .arg(0)
+            .arg(-1)
+            .arg("WITHSCORES")
+            .query_async(&mut conn)
+            .await?;
+        
+        let result: Vec<String> = workers.into_iter().map(|(_, worker_id)| worker_id).collect();
+        
+        debug!("Found {} workers for model {}", result.len(), model_id);
+        Ok(result)
+    }
+
+    pub async fn get_best_worker_for_model(&self, model_id: &Uuid) -> Result<Option<String>, RedisError> {
+        use crate::constants::{REDIS_MODEL_WORKERS_PREFIX, REDIS_MODEL_WORKERS_SUFFIX};
+        
+        let key = format!(
+            "{}:{}:{}",
+            REDIS_MODEL_WORKERS_PREFIX,
+            model_id,
+            REDIS_MODEL_WORKERS_SUFFIX
+        );
+        let mut conn = self.conn.clone();
+        
+        let workers: Vec<String> = redis::cmd("ZRANGE")
+            .arg(&key)
+            .arg(0)
+            .arg(0)
+            .query_async(&mut conn)
+            .await?;
+        
+        Ok(workers.into_iter().next())
+    }
+
+    pub async fn remove_worker_models(&self, worker_id: &str) -> Result<(), RedisError> {
+        use crate::constants::{REDIS_WORKER_MODELS_PREFIX, REDIS_WORKER_MODELS_SUFFIX, REDIS_WORKER_HEARTBEAT_SUFFIX};
+        
+        let models = self.get_worker_models(worker_id).await?;
+        
+        let models_key = format!("{}:{}:{}", REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_MODELS_SUFFIX);
+        let heartbeat_key = format!("{}:{}:{}", REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_HEARTBEAT_SUFFIX);
+        
+        let mut conn = self.conn.clone();
+        let _: () = conn.del(&models_key).await?;
+        let _: () = conn.del(&heartbeat_key).await?;
+        
+        for model_id in models.keys() {
+            let model_workers_key = format!(
+                "{}:{}:{}",
+                crate::constants::REDIS_MODEL_WORKERS_PREFIX,
+                model_id,
+                crate::constants::REDIS_MODEL_WORKERS_SUFFIX
+            );
+            let _: () = redis::cmd("ZREM")
+                .arg(&model_workers_key)
+                .arg(worker_id)
+                .query_async(&mut conn)
+                .await?;
+        }
+        
+        debug!("Removed worker {} models", worker_id);
+        Ok(())
+    }
+
+    pub async fn push_task_to_worker(
+        &self,
+        worker_id: &str,
+        task: &InferenceTask,
+    ) -> Result<String, RedisError> {
+        let stream_key = format!("ferrinx:worker:{}:tasks", worker_id);
+        let mut conn = self.conn.clone();
+        
+        let task_id = task.id.to_string();
+        let model_id = task.model_id.to_string();
+        let user_id = task.user_id.to_string();
+        let api_key_id = task.api_key_id.to_string();
+        let priority = task.priority.to_string();
+        let created_at = task.created_at.to_rfc3339();
+        let inputs_json = serde_json::to_string(&task.inputs)?;
+        
+        let entry_id: String = redis::cmd("XADD")
+            .arg(&stream_key)
+            .arg("*")
+            .arg("task_id")
+            .arg(&task_id)
+            .arg("model_id")
+            .arg(&model_id)
+            .arg("user_id")
+            .arg(&user_id)
+            .arg("api_key_id")
+            .arg(&api_key_id)
+            .arg("priority")
+            .arg(&priority)
+            .arg("created_at")
+            .arg(&created_at)
+            .arg("inputs")
+            .arg(&inputs_json)
+            .query_async(&mut conn)
+            .await?;
+        
+        debug!("Pushed task {} to worker stream {}", task.id, stream_key);
+        Ok(entry_id)
+    }
 }
 
 pub fn hash_api_key(key: &str) -> String {

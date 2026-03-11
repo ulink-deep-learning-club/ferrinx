@@ -8,4 +8,4 @@ pub use consumer::{TaskConsumer, TaskMessage};
 pub use error::{Result, WorkerError};
 pub use maintenance::{MaintenanceRunner, MaintenanceStats};
 pub use processor::TaskProcessor;
-pub use redis::{MockRedisClient, RedisClient, StreamEntry};
+pub use redis::{RedisClient, StreamEntry};
