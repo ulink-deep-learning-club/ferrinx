@@ -381,6 +381,37 @@ For high-availability and scaling:
 
 Apache-2.0
 
+## Incomplete Features
+
+The following features are planned but not yet fully implemented. Contributions welcome!
+
+### High Priority
+
+| Feature | Location | Description |
+|---------|----------|-------------|
+| S3 Storage Backend | `ferrinx-core/src/storage/` | Returns "not yet implemented" error. Needed for distributed deployments. |
+| GPU Execution Providers | `ferrinx-core/src/inference/engine.rs` | CUDA and TensorRT execution providers are defined but not configured. |
+| NMS Postprocessing | `ferrinx-core/src/transform/pipeline.rs:298` | Non-Maximum Suppression for object detection models returns unsupported error. |
+
+### Medium Priority
+
+| Feature | Location | Description |
+|---------|----------|-------------|
+| Prometheus Metrics | `ferrinx-api/src/handlers/mod.rs:36` | `/api/v1/metrics` endpoint is a stub. Full metrics defined in design docs. |
+| Model Metadata Extraction | `ferrinx-core/src/model/loader.rs:93` | `opset_version` and `producer_name` always return `None`. |
+| Dynamic Batching | Not implemented | `DynamicBatcher` for batching requests described in design docs. |
+| `update_retry_count` | `ferrinx-db/src/traits.rs` | DB repository method mentioned in design but not in trait. |
+
+### Low Priority
+
+| Feature | Location | Description |
+|---------|----------|-------------|
+| Lua Scripting | Not implemented | Custom pre/post-processing via Lua scripts. |
+| Model Optimizer | Not implemented | Quantization (INT8), graph optimization. |
+| Version Aliases | Not implemented | Model version aliasing (e.g., `production` tag). |
+| OpenTelemetry | Not implemented | Distributed tracing with Jaeger/Zipkin/OTLP. |
+| Letterbox Preprocessing | Not implemented | Aspect-ratio preserving resize for images. |
+
 ## Documentation
 
 - [Architecture Design](design.md) - Detailed architecture and design decisions

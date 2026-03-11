@@ -131,7 +131,7 @@ async fn run_worker(
         consumer_name.clone(),
         ctx.config.redis.consumer_group.clone(),
         streams,
-    ));
+    ).with_claim_idle_ms(ctx.config.worker.claim_idle_ms));
 
     let processor = Arc::new(TaskProcessor::new(
         ctx.db.clone(),
@@ -171,6 +171,15 @@ async fn run_worker(
     let mut maintenance_interval =
         tokio::time::interval(Duration::from_secs(ctx.config.cleanup.cleanup_interval_hours * 3600));
 
+    let mut task_recovery_interval =
+        tokio::time::interval(Duration::from_secs(ctx.config.worker.task_recovery_interval_secs));
+
+    let mut health_check_interval =
+        tokio::time::interval(Duration::from_secs(ctx.config.worker.health_check_interval_secs));
+
+    let mut consecutive_health_failures = 0u32;
+    const MAX_HEALTH_FAILURES: u32 = 3;
+
     info!("Worker {} started, polling for tasks...", consumer_name);
 
     loop {
@@ -183,8 +192,72 @@ async fn run_worker(
             _ = maintenance_interval.tick() => {
                 if ctx.config.cleanup.enabled {
                     info!("Running maintenance tasks...");
-                    if let Err(e) = maintenance.run_all().await {
-                        error!("Maintenance task failed: {}", e);
+                    match maintenance.run_all().await {
+                        Ok(stats) => {
+                            info!(
+                                "Maintenance completed: {} tasks deleted, {} temp keys deleted",
+                                stats.tasks_deleted, stats.keys_deleted
+                            );
+                        }
+                        Err(e) => {
+                            error!("Maintenance task failed: {}", e);
+                        }
+                    }
+                }
+            }
+
+            _ = task_recovery_interval.tick() => {
+                match consumer.claim_pending_tasks().await {
+                    Ok(tasks) => {
+                        if !tasks.is_empty() {
+                            for task_message in tasks {
+                                let processor = processor.clone();
+                                let consumer = consumer.clone();
+                                let current_tasks = current_tasks.clone();
+
+                                current_tasks.fetch_add(1, Ordering::Relaxed);
+
+                                tokio::spawn(async move {
+                                    let result = processor.process(task_message.clone()).await;
+
+                                    match result {
+                                        Ok(()) => {
+                                            if let Err(e) = consumer.ack_task(&task_message.stream, &task_message.entry_id).await {
+                                                error!("Failed to ACK recovered task: {}", e);
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!("Recovered task processing failed: {}", e);
+                                        }
+                                    }
+
+                                    current_tasks.fetch_sub(1, Ordering::Relaxed);
+                                });
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Task recovery failed: {}", e);
+                    }
+                }
+            }
+
+            _ = health_check_interval.tick() => {
+                match consumer.health_check().await {
+                    Ok(()) => {
+                        if consecutive_health_failures > 0 {
+                            info!("Redis health check recovered after {} failures", consecutive_health_failures);
+                        }
+                        consecutive_health_failures = 0;
+                    }
+                    Err(e) => {
+                        consecutive_health_failures += 1;
+                        error!("Redis health check failed (attempt {}/{}): {}", consecutive_health_failures, MAX_HEALTH_FAILURES, e);
+
+                        if consecutive_health_failures >= MAX_HEALTH_FAILURES {
+                            error!("Redis health check failed {} times consecutively, triggering shutdown", MAX_HEALTH_FAILURES);
+                            shutdown.cancel();
+                        }
                     }
                 }
             }
@@ -215,7 +288,7 @@ async fn run_worker(
                                     error!("Task processing failed: {}", e);
                                 }
                                 Err(_) => {
-                                    error!("Task processing timed out after {}s", timeout_secs);
+                                    error!("{}", WorkerError::TaskTimeout);
                                 }
                             }
 
@@ -250,7 +323,7 @@ async fn run_worker(
         info!("All tasks completed, shutting down");
     }
 
-    Ok(())
+    Err(WorkerError::Shutdown)
 }
 
 fn setup_shutdown_handler() -> Arc<tokio_util::sync::CancellationToken> {
@@ -306,9 +379,15 @@ async fn main() -> anyhow::Result<()> {
 
     let shutdown = setup_shutdown_handler();
 
-    if let Err(e) = run_worker(ctx, shutdown).await {
-        error!("Worker error: {}", e);
-        std::process::exit(1);
+    match run_worker(ctx, shutdown).await {
+        Err(WorkerError::Shutdown) => {
+            info!("Worker shutdown completed gracefully");
+        }
+        Err(e) => {
+            error!("Worker error: {}", e);
+            std::process::exit(1);
+        }
+        Ok(()) => {}
     }
 
     info!("Ferrinx Worker stopped");

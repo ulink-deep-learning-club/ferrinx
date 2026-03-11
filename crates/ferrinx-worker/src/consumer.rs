@@ -46,6 +46,11 @@ impl TaskConsumer {
         }
     }
 
+    pub fn with_claim_idle_ms(mut self, claim_idle_ms: i64) -> Self {
+        self.claim_idle_ms = claim_idle_ms;
+        self
+    }
+
     pub async fn poll_task(&self) -> Result<Option<TaskMessage>> {
         for stream in &self.streams {
             if let Some(task) = self.read_from_stream(stream).await? {

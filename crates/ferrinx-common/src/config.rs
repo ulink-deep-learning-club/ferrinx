@@ -147,6 +147,22 @@ pub struct WorkerConfig {
     pub poll_interval_ms: u64,
     pub max_retries: u32,
     pub retry_delay_ms: u64,
+    #[serde(default = "default_task_recovery_interval_secs")]
+    pub task_recovery_interval_secs: u64,
+    #[serde(default = "default_health_check_interval_secs")]
+    pub health_check_interval_secs: u64,
+    #[serde(default = "default_claim_idle_ms")]
+    pub claim_idle_ms: i64,
+}
+
+fn default_task_recovery_interval_secs() -> u64 {
+    300
+}
+fn default_health_check_interval_secs() -> u64 {
+    30
+}
+fn default_claim_idle_ms() -> i64 {
+    300_000
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -257,6 +273,9 @@ impl Config {
                 poll_interval_ms: 100,
                 max_retries: 3,
                 retry_delay_ms: 1000,
+                task_recovery_interval_secs: 300,
+                health_check_interval_secs: 30,
+                claim_idle_ms: 300_000,
             },
             cleanup: CleanupConfig {
                 enabled: true,

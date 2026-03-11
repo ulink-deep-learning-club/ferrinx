@@ -12,6 +12,7 @@ pub struct StreamEntry {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct PendingInfo {
     pub id: String,
     pub consumer: String,
@@ -20,6 +21,7 @@ pub struct PendingInfo {
 }
 
 #[async_trait]
+#[allow(dead_code)]
 pub trait RedisClient: Send + Sync {
     async fn xread_group(
         &self,
