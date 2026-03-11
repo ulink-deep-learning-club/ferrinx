@@ -466,7 +466,516 @@ pub struct TensorInfo {
 }
 ```
 
-### 2.3 存储抽象层
+### 2.3 模型配置系统
+
+模型配置系统用于定义模型的输入输出格式、预处理/后处理流程，支持两种配置方式：
+
+#### 2.3.1 纯配置文件方式（TOML）
+
+推荐用于大多数标准场景，覆盖 80% 的推理需求。
+
+**配置文件结构：**
+
+```toml
+# model.toml - 随模型分发
+
+[meta]
+name = "lenet-mnist"
+version = "1.0"
+description = "MNIST digit classification model"
+
+[model]
+file = "lenet.onnx"
+
+# 标签映射文件（分类模型专用）
+labels = "labels.json"
+
+[[inputs]]
+name = "input.1"           # ONNX 模型输入名
+alias = "image"            # 用户友好的别名
+shape = [-1, 1, 28, 28]    # [batch, channel, height, width]
+dtype = "float32"
+
+# 预处理流水线
+[[inputs.preprocess]]
+type = "resize"
+size = [28, 28]
+
+[[inputs.preprocess]]
+type = "grayscale"
+
+[[inputs.preprocess]]
+type = "normalize"
+mean = [0.1307]
+std = [0.3081]
+
+[[inputs.preprocess]]
+type = "to_tensor"
+dtype = "float32"
+scale = 255.0
+
+[[outputs]]
+name = "output.1"          # ONNX 模型输出名
+alias = "prediction"       # 用户友好的别名
+shape = [-1, 10]
+dtype = "float32"
+
+# 后处理流水线
+[[outputs.postprocess]]
+type = "softmax"
+
+[[outputs.postprocess]]
+type = "argmax"
+keep_prob = true
+
+[[outputs.postprocess]]
+type = "map_labels"        # 使用 labels.json 映射
+```
+
+**标签映射文件（labels.json）：**
+
+```json
+{
+  "labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+  "description": "MNIST handwritten digits"
+}
+```
+
+**内置预处理操作：**
+
+| 操作 | 参数 | 说明 |
+|------|------|------|
+| `resize` | `size: [h, w]` | 调整图像尺寸 |
+| `grayscale` | - | 转灰度图 |
+| `normalize` | `mean`, `std` | 标准化 |
+| `to_tensor` | `dtype`, `scale` | 转张量 |
+| `transpose` | `axes` | 维度交换 |
+| `squeeze` | `axes` | 去除维度 |
+| `unsqueeze` | `axes` | 增加维度 |
+| `reshape` | `shape` | 重塑形状 |
+| `center_crop` | `size` | 中心裁剪 |
+| `pad` | `padding`, `value` | 填充 |
+
+**内置后处理操作：**
+
+| 操作 | 参数 | 说明 |
+|------|------|------|
+| `softmax` | - | Softmax 归一化 |
+| `sigmoid` | - | Sigmoid 激活 |
+| `argmax` | `keep_prob` | 取最大值索引 |
+| `top_k` | `k` | Top-K 结果 |
+| `threshold` | `value` | 阈值过滤 |
+| `slice` | `start`, `end` | 切片 |
+| `map_labels` | - | 索引映射标签 |
+| `nms` | `iou_threshold`, `score_threshold` | 非极大值抑制 |
+
+#### 2.3.2 配置文件 + Lua 脚本方式（预留扩展）
+
+用于复杂预处理/后处理场景，当前阶段暂不实现。
+
+**配置文件结构：**
+
+```toml
+# model.toml
+
+[meta]
+name = "yolov8-detection"
+version = "1.0"
+
+[model]
+file = "yolov8n.onnx"
+
+[[inputs]]
+name = "images"
+alias = "image"
+shape = [-1, 3, 640, 640]
+dtype = "float32"
+
+# 使用 Lua 脚本进行复杂预处理
+[inputs.preprocess_script]
+language = "lua"
+file = "preprocess.lua"
+
+[[outputs]]
+name = "output0"
+alias = "detections"
+
+# 使用 Lua 脚本进行复杂后处理（如 NMS）
+[outputs.postprocess_script]
+language = "lua"
+file = "postprocess.lua"
+```
+
+**Lua 预处理脚本示例（preprocess.lua）：**
+
+```lua
+-- 内置函数: resize, normalize, to_tensor, letterbox
+
+function transform(input)
+    local image = input.image
+    
+    -- Letterbox 保持宽高比缩放
+    local resized, scale, pad = letterbox(image, 640, 640)
+    
+    -- BGR -> RGB
+    local rgb = transpose(resized, {2, 0, 1})
+    
+    -- 归一化
+    local normalized = normalize(rgb, 
+        {mean = {0.485, 0.456, 0.406}, std = {0.229, 0.224, 0.225}}
+    )
+    
+    return {
+        images = to_tensor(normalized, "float32")
+    }
+end
+```
+
+**Lua 后处理脚本示例（postprocess.lua）：**
+
+```lua
+-- 内置函数: softmax, nms, argmax, top_k
+
+function transform(output)
+    local raw = output.output0
+    
+    -- YOLOv8 输出解析
+    local boxes, scores, classes = parse_yolo_output(raw)
+    
+    -- NMS 非极大值抑制
+    local keep = nms(boxes, scores, {
+        iou_threshold = 0.45,
+        score_threshold = 0.25
+    })
+    
+    -- 构造结果
+    local detections = {}
+    for _, idx in ipairs(keep) do
+        table.insert(detections, {
+            bbox = boxes[idx],
+            score = scores[idx],
+            class_id = classes[idx],
+            class_name = get_label(classes[idx])
+        })
+    end
+    
+    return {detections = detections}
+end
+```
+
+**Lua 内置函数清单（预留）：**
+
+| 函数 | 说明 |
+|------|------|
+| `resize(image, w, h)` | 图像缩放 |
+| `letterbox(image, w, h)` | 保持比例缩放填充 |
+| `normalize(tensor, mean, std)` | 标准化 |
+| `transpose(tensor, axes)` | 维度交换 |
+| `to_tensor(data, dtype)` | 转张量 |
+| `softmax(tensor)` | Softmax |
+| `nms(boxes, scores, config)` | 非极大值抑制 |
+| `argmax(tensor, axis)` | 取最大索引 |
+| `top_k(tensor, k)` | Top-K |
+| `get_label(index)` | 获取标签名 |
+
+#### 2.3.3 配置解析实现
+
+```rust
+// src/model/config.rs
+
+use serde::Deserialize;
+use std::collections::HashMap;
+
+/// 模型配置
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModelConfig {
+    pub meta: ModelMeta,
+    pub model: ModelFile,
+    pub inputs: Vec<InputConfig>,
+    pub outputs: Vec<OutputConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModelMeta {
+    pub name: String,
+    pub version: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModelFile {
+    pub file: String,
+    #[serde(default)]
+    pub labels: Option<String>,
+}
+
+/// 输入配置
+#[derive(Debug, Clone, Deserialize)]
+pub struct InputConfig {
+    pub name: String,
+    #[serde(default)]
+    pub alias: Option<String>,
+    pub shape: Vec<i64>,
+    pub dtype: String,
+    #[serde(default)]
+    pub preprocess: Vec<PreprocessOp>,
+}
+
+/// 输出配置
+#[derive(Debug, Clone, Deserialize)]
+pub struct OutputConfig {
+    pub name: String,
+    #[serde(default)]
+    pub alias: Option<String>,
+    pub shape: Vec<i64>,
+    pub dtype: String,
+    #[serde(default)]
+    pub postprocess: Vec<PostprocessOp>,
+}
+
+/// 预处理操作
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type")]
+pub enum PreprocessOp {
+    #[serde(rename = "resize")]
+    Resize { size: Vec<u32> },
+    
+    #[serde(rename = "grayscale")]
+    Grayscale,
+    
+    #[serde(rename = "normalize")]
+    Normalize { mean: Vec<f32>, std: Vec<f32> },
+    
+    #[serde(rename = "to_tensor")]
+    ToTensor { dtype: String, #[serde(default)] scale: Option<f32> },
+    
+    #[serde(rename = "transpose")]
+    Transpose { axes: Vec<usize> },
+    
+    #[serde(rename = "squeeze")]
+    Squeeze { #[serde(default)] axes: Vec<usize> },
+    
+    #[serde(rename = "unsqueeze")]
+    Unsqueeze { axes: Vec<usize> },
+    
+    #[serde(rename = "reshape")]
+    Reshape { shape: Vec<i64> },
+    
+    #[serde(rename = "center_crop")]
+    CenterCrop { size: Vec<u32> },
+    
+    #[serde(rename = "pad")]
+    Pad { padding: Vec<u32>, #[serde(default)] value: Option<f32> },
+}
+
+/// 后处理操作
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type")]
+pub enum PostprocessOp {
+    #[serde(rename = "softmax")]
+    Softmax,
+    
+    #[serde(rename = "sigmoid")]
+    Sigmoid,
+    
+    #[serde(rename = "argmax")]
+    Argmax { #[serde(default)] keep_prob: bool },
+    
+    #[serde(rename = "top_k")]
+    TopK { k: usize },
+    
+    #[serde(rename = "threshold")]
+    Threshold { value: f32 },
+    
+    #[serde(rename = "slice")]
+    Slice { #[serde(default)] start: usize, #[serde(default)] end: usize },
+    
+    #[serde(rename = "map_labels")]
+    MapLabels,
+    
+    #[serde(rename = "nms")]
+    Nms { iou_threshold: f32, score_threshold: f32 },
+}
+
+/// 标签映射
+#[derive(Debug, Clone, Deserialize)]
+pub struct LabelMapping {
+    pub labels: Vec<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+impl ModelConfig {
+    /// 从 TOML 文件加载配置
+    pub fn from_toml(content: &str) -> Result<Self, toml::de::Error> {
+        toml::from_str(content)
+    }
+    
+    /// 加载标签映射
+    pub fn load_labels(&self, base_path: &Path) -> Option<LabelMapping> {
+        self.model.labels.as_ref().and_then(|label_file| {
+            let label_path = base_path.join(label_file);
+            std::fs::read_to_string(label_path)
+                .ok()
+                .and_then(|content| serde_json::from_str(&content).ok())
+        })
+    }
+}
+```
+
+#### 2.3.4 处理流水线实现
+
+```rust
+// src/transform/pipeline.rs
+
+use crate::model::config::{PreprocessOp, PostprocessOp, LabelMapping};
+
+/// 预处理流水线
+pub struct PreprocessPipeline {
+    ops: Vec<PreprocessOp>,
+}
+
+impl PreprocessPipeline {
+    pub fn new(ops: Vec<PreprocessOp>) -> Self {
+        Self { ops }
+    }
+    
+    /// 执行预处理
+    pub fn run(&self, input: TransformInput) -> Result<TensorData, TransformError> {
+        let mut data = input.into_tensor_data()?;
+        
+        for op in &self.ops {
+            data = self.apply_op(op, data)?;
+        }
+        
+        Ok(data)
+    }
+    
+    fn apply_op(&self, op: &PreprocessOp, data: TensorData) -> Result<TensorData, TransformError> {
+        match op {
+            PreprocessOp::Resize { size } => self.resize(data, size[0], size[1]),
+            PreprocessOp::Grayscale => self.to_grayscale(data),
+            PreprocessOp::Normalize { mean, std } => self.normalize(data, mean, std),
+            PreprocessOp::ToTensor { dtype, scale } => self.to_tensor(data, dtype, *scale),
+            PreprocessOp::Transpose { axes } => self.transpose(data, axes),
+            PreprocessOp::Squeeze { axes } => self.squeeze(data, axes),
+            PreprocessOp::Unsqueeze { axes } => self.unsqueeze(data, axes),
+            PreprocessOp::Reshape { shape } => self.reshape(data, shape),
+            PreprocessOp::CenterCrop { size } => self.center_crop(data, size),
+            PreprocessOp::Pad { padding, value } => self.pad(data, padding, *value),
+        }
+    }
+    
+    // 实现各操作...
+    fn resize(&self, data: TensorData, h: u32, w: u32) -> Result<TensorData, TransformError> {
+        // 使用 image crate 实现
+    }
+    
+    fn normalize(&self, mut data: TensorData, mean: &[f32], std: &[f32]) -> Result<TensorData, TransformError> {
+        for (i, val) in data.as_f32_mut().iter_mut().enumerate() {
+            let c = i % mean.len();
+            *val = (*val - mean[c]) / std[c];
+        }
+        Ok(data)
+    }
+}
+
+/// 后处理流水线
+pub struct PostprocessPipeline {
+    ops: Vec<PostprocessOp>,
+    labels: Option<LabelMapping>,
+}
+
+impl PostprocessPipeline {
+    pub fn new(ops: Vec<PostprocessOp>, labels: Option<LabelMapping>) -> Self {
+        Self { ops, labels }
+    }
+    
+    /// 执行后处理
+    pub fn run(&self, output: TensorData) -> Result<serde_json::Value, TransformError> {
+        let mut data = output;
+        
+        for op in &self.ops {
+            data = self.apply_op(op, data)?;
+        }
+        
+        self.to_json(data)
+    }
+    
+    fn apply_op(&self, op: &PostprocessOp, data: TensorData) -> Result<TensorData, TransformError> {
+        match op {
+            PostprocessOp::Softmax => self.softmax(data),
+            PostprocessOp::Sigmoid => self.sigmoid(data),
+            PostprocessOp::Argmax { keep_prob } => self.argmax(data, *keep_prob),
+            PostprocessOp::TopK { k } => self.top_k(data, *k),
+            PostprocessOp::Threshold { value } => self.threshold(data, *value),
+            PostprocessOp::Slice { start, end } => self.slice(data, *start, *end),
+            PostprocessOp::MapLabels => self.map_labels(data),
+            PostprocessOp::Nms { iou_threshold, score_threshold } => {
+                self.nms(data, *iou_threshold, *score_threshold)
+            }
+        }
+    }
+    
+    fn softmax(&self, mut data: TensorData) -> Result<TensorData, TransformError> {
+        let values = data.as_f32_mut();
+        let max = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let exp_sum: f32 = values.iter().map(|v| (v - max).exp()).sum();
+        
+        for val in values.iter_mut() {
+            *val = (*val - max).exp() / exp_sum;
+        }
+        Ok(data)
+    }
+    
+    fn argmax(&self, data: TensorData, keep_prob: bool) -> Result<TensorData, TransformError> {
+        let values = data.as_f32();
+        let max_idx = values.iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+            .map(|(i, _)| i)
+            .unwrap();
+        
+        if keep_prob {
+            Ok(TensorData::from_map(serde_json::json!({
+                "class_index": max_idx,
+                "probability": values[max_idx]
+            })))
+        } else {
+            Ok(TensorData::from_scalar(max_idx as i64))
+        }
+    }
+    
+    fn map_labels(&self, data: TensorData) -> Result<TensorData, TransformError> {
+        let labels = self.labels.as_ref().ok_or(TransformError::NoLabels)?;
+        // 映射索引到标签名
+        // ...
+    }
+}
+```
+
+#### 2.3.5 完整模型目录结构
+
+```
+models/
+├── lenet-mnist/
+│   ├── model.toml      # 配置文件
+│   ├── lenet.onnx      # ONNX 模型
+│   └── labels.json     # 标签映射
+│
+├── resnet50-imagenet/
+│   ├── model.toml
+│   ├── resnet50.onnx
+│   └── labels.json     # 1000 类 ImageNet 标签
+│
+└── yolov8-coco/
+    ├── model.toml
+    ├── yolov8n.onnx
+    └── labels.json     # 80 类 COCO 标签
+```
+
+### 2.4 存储抽象层
 
 ```rust
 // src/storage/mod.rs

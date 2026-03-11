@@ -1,9 +1,51 @@
-[package]
-name = "ferrinx"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = [
+    "crates/ferrinx-common",
+    "crates/ferrinx-db",
+    "crates/ferrinx-core",
+    "crates/ferrinx-api",
+    "crates/ferrinx-cli",
+    "crates/ferrinx-worker",
+]
+resolver = "2"
 
-[dependencies]
-ort = "2.0.0-rc.12"
-redis = "1.0.5"
-sqlx = "0.8.6"
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Ferrinx Team"]
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.22", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.10"
+config = "0.15"
+toml = "1.0"
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+tokio = { version = "1.50", features = ["full"] }
+async-trait = "0.1"
+rand = "0.10"
+shellexpand = "3.1"
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+tokio-util = "0.7"
+tempfile = "3.20"
+reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
+futures = "0.3"
+hex = "0.4"
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
+lto = true
+
+[profile.test]
+opt-level = 1

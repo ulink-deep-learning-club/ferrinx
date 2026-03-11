@@ -1,0 +1,83 @@
+[server]
+host = "0.0.0.0"
+port = 8080
+workers = 4
+max_request_size_mb = 500
+graceful_shutdown_timeout = 30
+sync_inference_concurrency = 4
+sync_inference_timeout = 30
+api_version = "v1"
+include_version_header = true
+
+[rate_limit]
+enabled = true
+algorithm = "sliding_window"
+default_rpm = 60
+burst = 10
+sync_inference_rpm = 30
+async_inference_rpm = 100
+cleanup_interval_secs = 60
+
+[auth]
+api_key_secret = "${FERRINX_API_KEY_SECRET}"
+api_key_prefix = "frx_sk"
+max_keys_per_user = 10
+temp_key_ttl_hours = 1
+temp_key_prefix = "frx_sk_temp_"
+
+[database]
+backend = "postgresql"
+url = "${FERRINX_DATABASE_URL}"
+max_connections = 10
+run_migrations = false
+
+[redis]
+url = "${FERRINX_REDIS_URL}"
+pool_size = 10
+stream_key = "ferrinx:tasks:stream"
+consumer_group = "ferrinx-workers"
+dead_letter_stream = "ferrinx:tasks:dead_letter"
+result_cache_prefix = "ferrinx:results"
+result_cache_ttl = 86400
+api_key_store = "ferrinx:api_keys"
+api_key_cache_ttl = 3600
+fallback_to_db = true
+
+[storage]
+backend = "local"
+path = "./models"
+
+[onnx]
+cache_size = 5
+preload = []
+execution_provider = "CPU"
+gpu_device_id = 0
+
+[logging]
+level = "info"
+format = "json"
+file = "./logs/ferrinx.log"
+max_file_size_mb = 100
+max_files = 10
+
+[worker]
+consumer_name = ""
+concurrency = 4
+poll_interval_ms = 100
+max_retries = 3
+retry_delay_ms = 1000
+
+[cleanup]
+enabled = true
+completed_task_retention_days = 30
+failed_task_retention_days = 7
+cancelled_task_retention_days = 3
+cleanup_interval_hours = 24
+cleanup_batch_size = 1000
+temp_key_cleanup_interval_hours = 1
+
+[model_validation]
+enabled = true
+validate_session = false
+validation_timeout_secs = 30
+async_validation = true
