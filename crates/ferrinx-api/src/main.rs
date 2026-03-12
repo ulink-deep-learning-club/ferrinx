@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Config::default_dev()
     });
 
-    println!("Loaded configuration: {:?}", config);
+    println!("{}", format_config(&config));
 
     init_logging(&config);
 
@@ -151,4 +151,44 @@ async fn shutdown_signal(cancel_token: CancellationToken) {
     }
 
     info!("Shutdown signal received");
+}
+
+fn format_config(config: &Config) -> String {
+    let mut output = String::from("Loaded configuration:\n");
+
+    output.push_str(&format!("  Server:\n"));
+    output.push_str(&format!("    host: {}\n", config.server.host));
+    output.push_str(&format!("    port: {}\n", config.server.port));
+
+    output.push_str(&format!("  Database:\n"));
+    output.push_str(&format!("    backend: {:?}\n", config.database.backend));
+    output.push_str(&format!("    url: {}\n", mask_secrets("url", &config.database.url)));
+
+    output.push_str(&format!("  Storage:\n"));
+    output.push_str(&format!("    backend: {:?}\n", config.storage.backend));
+    output.push_str(&format!("    path: {}\n", config.storage.path.as_deref().unwrap_or("default")));
+
+    output.push_str(&format!("  ONNX:\n"));
+    output.push_str(&format!("    execution_provider: {:?}\n", config.onnx.execution_provider));
+
+    output.push_str(&format!("  Auth:\n"));
+    output.push_str(&format!("    api_key_secret: {}\n", mask_secrets("secret", &config.auth.api_key_secret)));
+
+    output.push_str(&format!("  Redis:\n"));
+    output.push_str(&format!("    url: {}\n",
+        if config.redis.url.is_empty() { "(not configured)".to_string() }
+        else { mask_secrets("url", &config.redis.url) }
+    ));
+
+    output.trim_end().to_string()
+}
+
+fn mask_secrets(field_name: &str, value: &str) -> String {
+    if field_name.contains("secret") {
+        "*".repeat(8)
+    } else if field_name == "url" && value.contains('@') {
+        value.split('@').last().map(|host| format!("***@{}", host)).unwrap_or_else(|| value.to_string())
+    } else {
+        value.to_string()
+    }
 }

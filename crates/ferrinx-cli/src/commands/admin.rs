@@ -101,7 +101,7 @@ pub async fn handle_admin(
             output::print_success(&format!("User updated: {}", user.username));
         }
         AdminCommands::DeleteUser { user_id } => {
-            let _: serde_json::Value = client.delete(&format!("/admin/users/{}", user_id)).await?;
+            client.delete_void(&format!("/admin/users/{}", user_id)).await?;
             output::print_success(&format!("User deleted: {}", user_id));
         }
     }

@@ -4,6 +4,13 @@ use crate::config::CliConfig;
 use crate::error::{CliError, Result};
 use crate::output;
 use clap::Subcommand;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize, serde::Serialize)]
+pub struct ImageInferResponse {
+    pub result: serde_json::Value,
+    pub latency_ms: u64,
+}
 
 #[derive(Subcommand)]
 pub enum InferCommands {
@@ -51,24 +58,45 @@ pub async fn handle_infer(
             image,
             output,
         } => {
-            let model_id = resolve_model_id(client, model_id, name, version).await?;
-            let inputs = if let Some(image_path) = image {
-                preprocess_image(client, &model_id, &image_path).await?
+            if let Some(image_path) = image {
+                let mut form_data = std::collections::HashMap::new();
+                
+                if let Some(id) = model_id {
+                    form_data.insert("model_id".to_string(), id);
+                } else if let (Some(n), Some(v)) = (name, version) {
+                    form_data.insert("name".to_string(), n);
+                    form_data.insert("version".to_string(), v);
+                } else {
+                    return Err(CliError::InvalidInput("Either model_id or name+version is required".to_string()));
+                }
+
+                let response: ImageInferResponse = client
+                    .upload_image("/inference/image", &image_path, form_data)
+                    .await?;
+
+                if let Some(output_file) = output {
+                    let json = serde_json::to_string_pretty(&response.result)?;
+                    tokio::fs::write(&output_file, json).await?;
+                    output::print_success(&format!("Result saved to {}", output_file));
+                } else {
+                    output::print_output(&response, config.output_format)?;
+                }
             } else if let Some(input_str) = input {
-                super::parse_input(&input_str)?
+                let model_id = resolve_model_id(client, model_id, name, version).await?;
+                let inputs = super::parse_input(&input_str)?;
+
+                let request = SyncInferRequest { model_id, inputs };
+                let response: SyncInferResponse = client.post("/inference/sync", &request).await?;
+
+                if let Some(output_file) = output {
+                    let json = serde_json::to_string_pretty(&response.outputs)?;
+                    tokio::fs::write(&output_file, json).await?;
+                    output::print_success(&format!("Result saved to {}", output_file));
+                } else {
+                    output::print_output(&response, config.output_format)?;
+                }
             } else {
                 return Err(CliError::InvalidInput("Either --input or --image is required".to_string()));
-            };
-
-            let request = SyncInferRequest { model_id, inputs };
-            let response: SyncInferResponse = client.post("/inference/sync", &request).await?;
-
-            if let Some(output_file) = output {
-                let json = serde_json::to_string_pretty(&response.outputs)?;
-                tokio::fs::write(&output_file, json).await?;
-                output::print_success(&format!("Result saved to {}", output_file));
-            } else {
-                output::print_output(&response, config.output_format)?;
             }
         }
         InferCommands::Async {
@@ -79,26 +107,43 @@ pub async fn handle_infer(
             image,
             priority,
         } => {
-            let model_id = resolve_model_id(client, model_id, name, version).await?;
-            let inputs = if let Some(image_path) = image {
-                preprocess_image(client, &model_id, &image_path).await?
+            if let Some(image_path) = image {
+                let mut form_data = std::collections::HashMap::new();
+                
+                if let Some(id) = model_id {
+                    form_data.insert("model_id".to_string(), id);
+                } else if let (Some(n), Some(v)) = (name, version) {
+                    form_data.insert("name".to_string(), n);
+                    form_data.insert("version".to_string(), v);
+                } else {
+                    return Err(CliError::InvalidInput("Either model_id or name+version is required".to_string()));
+                }
+
+                let response: ImageInferResponse = client
+                    .upload_image("/inference/image", &image_path, form_data)
+                    .await?;
+
+                output::print_success("Image inference completed");
+                println!("Result: {}", serde_json::to_string_pretty(&response.result)?);
+                println!("Latency: {} ms", response.latency_ms);
             } else if let Some(input_str) = input {
-                super::parse_input(&input_str)?
+                let model_id = resolve_model_id(client, model_id, name, version).await?;
+                let inputs = super::parse_input(&input_str)?;
+
+                let request = AsyncInferRequest {
+                    model_id,
+                    inputs,
+                    priority,
+                };
+
+                let response: AsyncInferResponse = client.post("/inference", &request).await?;
+
+                output::print_success("Task submitted");
+                println!("Task ID: {}", response.task_id);
+                println!("Status: {}", response.status);
             } else {
                 return Err(CliError::InvalidInput("Either --input or --image is required".to_string()));
-            };
-
-            let request = AsyncInferRequest {
-                model_id,
-                inputs,
-                priority,
-            };
-
-            let response: AsyncInferResponse = client.post("/inference", &request).await?;
-
-            output::print_success("Task submitted");
-            println!("Task ID: {}", response.task_id);
-            println!("Status: {}", response.status);
+            }
         }
     }
 
@@ -120,63 +165,4 @@ async fn resolve_model_id(
 
     let model: crate::output::ModelDetail = client.get(&format!("/models/{}/{}", name, version)).await?;
     Ok(model.id)
-}
-
-async fn preprocess_image(
-    client: &HttpClient,
-    model_id: &str,
-    image_path: &str,
-) -> Result<std::collections::HashMap<String, serde_json::Value>> {
-    let model: crate::output::ModelDetail = client.get(&format!("/models/{}", model_id)).await?;
-
-    let input_info = model.input_shapes
-        .as_ref()
-        .and_then(|v| v.as_array())
-        .and_then(|arr| arr.first())
-        .ok_or_else(|| CliError::InvalidInput("Model has no input shape information".to_string()))?;
-
-    let shape: Vec<i64> = input_info.get("shape")
-        .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
-        .ok_or_else(|| CliError::InvalidInput("Invalid input shape format".to_string()))?;
-
-    if shape.len() < 2 {
-        return Err(CliError::InvalidInput("Invalid input shape: expected at least 2 dimensions".to_string()));
-    }
-
-    let height = shape[shape.len() - 2] as u32;
-    let width = shape[shape.len() - 1] as u32;
-    let channels = if shape.len() >= 4 { shape[1] as u32 } else { 1 };
-
-    let img = image::open(image_path)
-        .map_err(|e| CliError::InvalidInput(format!("Failed to load image: {}", e)))?;
-
-    let resized = img.resize_exact(width, height, image::imageops::FilterType::Lanczos3);
-
-    let mut data: Vec<f32> = Vec::with_capacity((width * height * channels) as usize);
-
-    if channels == 1 {
-        let gray = resized.to_luma8();
-        for pixel in gray.pixels() {
-            let normalized = pixel[0] as f32 / 255.0;
-            data.push(normalized);
-        }
-    } else {
-        let rgb = resized.to_rgb8();
-        for pixel in rgb.pixels() {
-            for c in 0..channels as usize {
-                let normalized = pixel[c.min(2)] as f32 / 255.0;
-                data.push(normalized);
-            }
-        }
-    }
-
-    let input_name = input_info.get("name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("input");
-
-    Ok(std::collections::HashMap::from([(
-        input_name.to_string(),
-        serde_json::Value::Array(data.into_iter().map(|v| serde_json::json!(v)).collect()),
-    )]))
 }

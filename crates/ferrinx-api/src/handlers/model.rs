@@ -26,13 +26,14 @@ pub struct RegisterModelRequest {
     pub version: String,
     pub file_path: String,
     #[serde(default)]
-    pub metadata: Option<serde_json::Value>,
+    pub config: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateModelRequest {
     pub name: Option<String>,
     pub version: Option<String>,
+    pub config: Option<String>,
 }
 
 pub async fn upload(
@@ -47,6 +48,7 @@ pub async fn upload(
     let mut model_name = String::new();
     let mut model_version = String::new();
     let mut model_data: Option<Vec<u8>> = None;
+    let mut config_data: Option<String> = None;
 
     while let Some(field) = multipart.next_field().await.map_err(|e| {
         ApiError::BadRequest(format!("Multipart error: {}", e))
@@ -71,6 +73,13 @@ pub async fn upload(
                         .await
                         .map_err(|e| ApiError::BadRequest(format!("Failed to read file: {}", e)))?
                         .to_vec(),
+                );
+            }
+            "config" => {
+                config_data = Some(
+                    field.text().await.map_err(|e| {
+                        ApiError::BadRequest(format!("Failed to read config: {}", e))
+                    })?,
                 );
             }
             _ => {}
@@ -99,6 +108,17 @@ pub async fn upload(
     let model_id_str = model_id.to_string();
     let file_path = state.storage.save(&model_id_str, &model_data).await?;
 
+    let config_metadata = if let Some(ref config_str) = config_data {
+        match ferrinx_core::model::config::ModelConfig::from_toml(config_str) {
+            Ok(config) => Some(serde_json::to_value(config)?),
+            Err(e) => {
+                return Err(ApiError::BadRequest(format!("Invalid config TOML: {}", e)));
+            }
+        }
+    } else {
+        None
+    };
+
     match state.loader.validate_model(&model_data).await {
         Ok(metadata) => {
             let model = ferrinx_common::ModelInfo {
@@ -110,9 +130,7 @@ pub async fn upload(
                 storage_backend: "local".to_string(),
                 input_shapes: Some(serde_json::to_value(metadata.inputs)?),
                 output_shapes: Some(serde_json::to_value(metadata.outputs)?),
-                metadata: None,
-                is_valid: true,
-                validation_error: None,
+                metadata: config_metadata,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             };
@@ -131,16 +149,14 @@ pub async fn upload(
                 storage_backend: "local".to_string(),
                 input_shapes: None,
                 output_shapes: None,
-                metadata: None,
-                is_valid: false,
-                validation_error: Some(e.to_string()),
+                metadata: config_metadata,
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             };
 
             state.db.models.save(&model).await?;
 
-            return Ok(Json(ApiResponse::success(ModelDetail::from(model))));
+            return Err(ApiError::BadRequest(format!("Model validation failed: {}", e)));
         }
     }
 }
@@ -166,25 +182,29 @@ pub async fn register(
     let model_data = state.storage.load(&req.file_path).await?;
     let file_path = state.storage.save(&model_id_str, &model_data).await?;
 
-    let is_valid;
-    let validation_error;
     let input_shapes;
     let output_shapes;
 
     match state.loader.validate_model(&model_data).await {
         Ok(metadata) => {
-            is_valid = true;
-            validation_error = None;
             input_shapes = Some(serde_json::to_value(metadata.inputs)?);
             output_shapes = Some(serde_json::to_value(metadata.outputs)?);
         }
         Err(e) => {
-            is_valid = false;
-            validation_error = Some(e.to_string());
-            input_shapes = None;
-            output_shapes = None;
+            return Err(ApiError::BadRequest(format!("Model validation failed: {}", e)));
         }
     }
+
+    let config_metadata = if let Some(ref config_str) = req.config {
+        match ferrinx_core::model::config::ModelConfig::from_toml(config_str) {
+            Ok(config) => Some(serde_json::to_value(config)?),
+            Err(e) => {
+                return Err(ApiError::BadRequest(format!("Invalid config TOML: {}", e)));
+            }
+        }
+    } else {
+        None
+    };
 
     let model = ferrinx_common::ModelInfo {
         id: model_id,
@@ -195,9 +215,7 @@ pub async fn register(
         storage_backend: "local".to_string(),
         input_shapes,
         output_shapes,
-        metadata: req.metadata,
-        is_valid,
-        validation_error,
+        metadata: config_metadata,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     };
@@ -354,6 +372,12 @@ pub async fn update(
             }
             model.version = version;
         }
+    }
+
+    if let Some(config_str) = req.config {
+        let config = ferrinx_core::model::config::ModelConfig::from_toml(&config_str)
+            .map_err(|e| ApiError::BadRequest(format!("Invalid config TOML: {}", e)))?;
+        model.metadata = Some(serde_json::to_value(config)?);
     }
 
     model.updated_at = Utc::now();

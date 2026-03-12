@@ -32,6 +32,7 @@ pub struct ModelDetail {
     pub is_valid: bool,
     pub input_shapes: Option<serde_json::Value>,
     pub output_shapes: Option<serde_json::Value>,
+    pub metadata: Option<serde_json::Value>,
     pub created_at: String,
 }
 

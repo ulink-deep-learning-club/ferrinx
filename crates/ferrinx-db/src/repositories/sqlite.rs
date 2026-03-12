@@ -23,16 +23,13 @@ impl ModelRepository for SqliteModelRepository {
         let query = r#"
             INSERT INTO models (
                 id, name, version, file_path, file_size, storage_backend,
-                input_shapes, output_shapes, metadata, is_valid, validation_error,
-                created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                input_shapes, output_shapes, metadata, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 version = excluded.version,
                 file_path = excluded.file_path,
                 file_size = excluded.file_size,
-                is_valid = excluded.is_valid,
-                validation_error = excluded.validation_error,
                 updated_at = excluded.updated_at
         "#;
 
@@ -46,8 +43,6 @@ impl ModelRepository for SqliteModelRepository {
             .bind(&model.input_shapes)
             .bind(&model.output_shapes)
             .bind(&model.metadata)
-            .bind(model.is_valid)
-            .bind(&model.validation_error)
             .bind(model.created_at.to_rfc3339())
             .bind(model.updated_at.to_rfc3339())
             .execute(&self.pool)
@@ -89,8 +84,11 @@ impl ModelRepository for SqliteModelRepository {
         }
 
         if let Some(is_valid) = filter.is_valid {
-            query.push_str(" AND is_valid = ?");
-            binds.push(if is_valid { "1" } else { "0" }.to_string());
+            if is_valid {
+                query.push_str(" AND metadata IS NOT NULL AND input_shapes IS NOT NULL");
+            } else {
+                query.push_str(" AND (metadata IS NULL OR input_shapes IS NULL)");
+            }
         }
 
         query.push_str(" ORDER BY created_at DESC");
@@ -122,29 +120,6 @@ impl ModelRepository for SqliteModelRepository {
         Ok(result.rows_affected() > 0)
     }
 
-    async fn update_validation_status(
-        &self,
-        id: &Uuid,
-        is_valid: bool,
-        error: Option<&str>,
-    ) -> Result<()> {
-        let query = r#"
-            UPDATE models 
-            SET is_valid = ?2, validation_error = ?3, updated_at = ?4
-            WHERE id = ?1
-        "#;
-
-        sqlx::query(query)
-            .bind(id.to_string())
-            .bind(is_valid)
-            .bind(error)
-            .bind(Utc::now().to_rfc3339())
-            .execute(&self.pool)
-            .await?;
-
-        Ok(())
-    }
-
     async fn exists(&self, name: &str, version: &str) -> Result<bool> {
         let query = "SELECT 1 FROM models WHERE name = ?1 AND version = ?2 LIMIT 1";
 
@@ -169,8 +144,6 @@ struct ModelRow {
     input_shapes: Option<String>,
     output_shapes: Option<String>,
     metadata: Option<String>,
-    is_valid: bool,
-    validation_error: Option<String>,
     created_at: String,
     updated_at: String,
 }
@@ -187,8 +160,6 @@ impl From<ModelRow> for ModelInfo {
             input_shapes: row.input_shapes.and_then(|s| serde_json::from_str(&s).ok()),
             output_shapes: row.output_shapes.and_then(|s| serde_json::from_str(&s).ok()),
             metadata: row.metadata.and_then(|s| serde_json::from_str(&s).ok()),
-            is_valid: row.is_valid,
-            validation_error: row.validation_error,
             created_at: chrono::DateTime::parse_from_rfc3339(&row.created_at)
                 .map(|dt| dt.with_timezone(&Utc))
                 .unwrap_or_else(|_| Utc::now()),

@@ -148,6 +148,33 @@ impl HttpClient {
         })
     }
 
+    pub async fn delete_void(&self, path: &str) -> Result<()> {
+        let url = format!("{}{}", self.base_url, path);
+
+        let mut request = self.client.delete(&url);
+
+        if let Some(ref api_key) = self.api_key {
+            request = request.bearer_auth(api_key);
+        }
+
+        let response = request.send().await?;
+
+        if !response.status().is_success() {
+            return Err(self.handle_error_response(response).await);
+        }
+
+        let body: ApiResponse<serde_json::Value> = response.json().await?;
+
+        if let Some(error) = body.error {
+            return Err(CliError::ApiError {
+                code: error.code,
+                message: error.message,
+            });
+        }
+
+        Ok(())
+    }
+
     pub async fn put<T: DeserializeOwned, B: Serialize>(
         &self,
         path: &str,
@@ -181,6 +208,16 @@ impl HttpClient {
         file_path: &str,
         form_data: HashMap<String, String>,
     ) -> Result<T> {
+        self.upload_with_config(path, file_path, form_data, None).await
+    }
+
+    pub async fn upload_with_config<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        file_path: &str,
+        form_data: HashMap<String, String>,
+        config_path: Option<&str>,
+    ) -> Result<T> {
         let url = format!("{}{}", self.base_url, path);
 
         let file = tokio::fs::File::open(file_path).await?;
@@ -196,6 +233,62 @@ impl HttpClient {
         .file_name(file_name.to_string());
 
         let mut form = multipart::Form::new().part("file", part);
+
+        for (key, value) in form_data {
+            form = form.text(key, value);
+        }
+
+        if let Some(cfg_path) = config_path {
+            let config_content = tokio::fs::read_to_string(cfg_path).await?;
+            form = form.text("config", config_content);
+        }
+
+        let mut request = self.client.post(&url).multipart(form);
+
+        if let Some(ref api_key) = self.api_key {
+            request = request.bearer_auth(api_key);
+        }
+
+        let response = request.send().await?;
+
+        if !response.status().is_success() {
+            return Err(self.handle_error_response(response).await);
+        }
+
+        let body: ApiResponse<T> = response.json().await?;
+
+        body.data.ok_or_else(|| CliError::ApiError {
+            code: "NO_DATA".to_string(),
+            message: "No data in response".to_string(),
+        })
+    }
+
+    pub async fn upload_image<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        image_path: &str,
+        form_data: HashMap<String, String>,
+    ) -> Result<T> {
+        let url = format!("{}{}", self.base_url, path);
+
+        let file = tokio::fs::File::open(image_path).await?;
+        let file_size = file.metadata().await?.len();
+
+        let file_name = image_path.split('/').next_back().unwrap_or("image");
+
+        let stream = ReaderStream::new(file);
+        let part = multipart::Part::stream_with_length(
+            reqwest::Body::wrap_stream(stream),
+            file_size,
+        )
+        .file_name(file_name.to_string())
+        .mime_str("image/*")
+        .map_err(|e| CliError::HttpError {
+            status: 0,
+            message: format!("MIME error: {}", e),
+        })?;
+
+        let mut form = multipart::Form::new().part("image", part);
 
         for (key, value) in form_data {
             form = form.text(key, value);

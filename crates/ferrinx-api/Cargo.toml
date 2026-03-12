@@ -26,6 +26,8 @@ anyhow = { workspace = true }
 sha2 = { workspace = true }
 rand = { workspace = true }
 hex = "0.4"
+image = "0.25"
+ndarray = "0.17"
 
 [dev-dependencies]
 ferrinx-cli = { path = "../ferrinx-cli" }

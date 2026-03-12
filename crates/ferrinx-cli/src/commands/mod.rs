@@ -75,6 +75,8 @@ pub struct RegisterModelRequest {
     pub file_path: String,
     pub name: String,
     pub version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

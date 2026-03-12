@@ -318,17 +318,15 @@ fn normalize_tensor(tensor: &ArrayD<f32>, mean: &[f32], std: &[f32]) -> ArrayD<f
 }
 
 fn image_to_tensor(img: &image::DynamicImage, scale: f32) -> Result<ArrayD<f32>, TransformError> {
-    let rgb = img.to_rgb8();
-    let (w, h) = rgb.dimensions();
-    let mut data = Vec::with_capacity((w * h * 3) as usize);
+    let luma = img.to_luma8();
+    let (w, h) = luma.dimensions();
+    let mut data = Vec::with_capacity((w * h) as usize);
 
-    for pixel in rgb.pixels() {
-        for c in pixel.0.iter() {
-            data.push(*c as f32 / scale);
-        }
+    for pixel in luma.pixels() {
+        data.push(pixel.0[0] as f32 / scale);
     }
 
-    let tensor = ArrayD::from_shape_vec(IxDyn(&[h as usize, w as usize, 3]), data)
+    let tensor = ArrayD::from_shape_vec(IxDyn(&[h as usize, w as usize, 1]), data)
         .map_err(|e| TransformError::InvalidInput(e.to_string()))?;
 
     Ok(tensor)

@@ -160,13 +160,8 @@ pub trait ModelRepository: Send + Sync {
     /// 在事务中删除模型
     async fn delete_tx(&self, tx: &mut Transaction, id: &uuid::Uuid) -> Result<bool, DbError>;
     
-    /// 更新模型验证状态
-    async fn update_validation_status(
-        &self, 
-        id: &uuid::Uuid, 
-        is_valid: bool, 
-        error: Option<&str>
-    ) -> Result<(), DbError>;
+    /// 检查模型是否存在
+    async fn exists(&self, name: &str, version: &str) -> Result<bool, DbError>;
 }
 
 /// 模型过滤条件
@@ -325,14 +320,14 @@ impl ModelRepository for PostgresModelRepository {
         let query = r#"
             INSERT INTO models (
                 id, name, version, file_path, file_size, storage_backend,
-                input_shapes, output_shapes, metadata, is_valid, validation_error,
-                created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                input_shapes, output_shapes, metadata, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (id) DO UPDATE SET
                 name = EXCLUDED.name,
                 version = EXCLUDED.version,
-                is_valid = EXCLUDED.is_valid,
-                validation_error = EXCLUDED.validation_error,
+                input_shapes = EXCLUDED.input_shapes,
+                output_shapes = EXCLUDED.output_shapes,
+                metadata = EXCLUDED.metadata,
                 updated_at = EXCLUDED.updated_at
         "#;
         
@@ -346,8 +341,6 @@ impl ModelRepository for PostgresModelRepository {
             .bind(&model.input_shapes)
             .bind(&model.output_shapes)
             .bind(&model.metadata)
-            .bind(&model.is_valid)
-            .bind(&model.validation_error)
             .bind(&model.created_at)
             .bind(&model.updated_at)
             .execute(&self.pool)
@@ -400,9 +393,13 @@ impl ModelRepository for PostgresModelRepository {
             query_builder.push_bind(format!("%{}%", name));
         }
         
+        // is_valid is computed from metadata and input_shapes
         if let Some(is_valid) = filter.is_valid {
-            query_builder.push(" AND is_valid = ");
-            query_builder.push_bind(is_valid);
+            if is_valid {
+                query_builder.push(" AND metadata IS NOT NULL AND input_shapes IS NOT NULL");
+            } else {
+                query_builder.push(" AND (metadata IS NULL OR input_shapes IS NULL)");
+            }
         }
         
         query_builder.push(" ORDER BY created_at DESC");
@@ -439,26 +436,16 @@ impl ModelRepository for PostgresModelRepository {
         unimplemented!("delete_tx not yet implemented")
     }
     
-    async fn update_validation_status(
-        &self, 
-        id: &uuid::Uuid, 
-        is_valid: bool, 
-        error: Option<&str>
-    ) -> Result<(), DbError> {
-        let query = r#"
-            UPDATE models 
-            SET is_valid = $2, validation_error = $3, updated_at = NOW()
-            WHERE id = $1
-        "#;
+    async fn exists(&self, name: &str, version: &str) -> Result<bool, DbError> {
+        let query = "SELECT 1 FROM models WHERE name = $1 AND version = $2 LIMIT 1";
         
-        sqlx::query(query)
-            .bind(id)
-            .bind(is_valid)
-            .bind(error)
-            .execute(&self.pool)
+        let result: Option<(i32,)> = sqlx::query_as(query)
+            .bind(name)
+            .bind(version)
+            .fetch_optional(&self.pool)
             .await?;
         
-        Ok(())
+        Ok(result.is_some())
     }
 }
 ```
@@ -572,14 +559,14 @@ impl ModelRepository for SqliteModelRepository {
         let query = r#"
             INSERT INTO models (
                 id, name, version, file_path, file_size, storage_backend,
-                input_shapes, output_shapes, metadata, is_valid, validation_error,
-                created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                input_shapes, output_shapes, metadata, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
                 version = excluded.version,
-                is_valid = excluded.is_valid,
-                validation_error = excluded.validation_error,
+                input_shapes = excluded.input_shapes,
+                output_shapes = excluded.output_shapes,
+                metadata = excluded.metadata,
                 updated_at = excluded.updated_at
         "#;
         
@@ -594,8 +581,6 @@ impl ModelRepository for SqliteModelRepository {
             .bind(&model.input_shapes)
             .bind(&model.output_shapes)
             .bind(&model.metadata)
-            .bind(&model.is_valid)
-            .bind(&model.validation_error)
             .bind(&model.created_at.to_rfc3339())
             .bind(&model.updated_at.to_rfc3339())
             .execute(&self.pool)
@@ -682,16 +667,16 @@ CREATE TABLE models (
     input_shapes JSONB,
     output_shapes JSONB,
     metadata JSONB,
-    is_valid BOOLEAN NOT NULL DEFAULT true,
-    validation_error TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(name, version)
 );
 
 CREATE INDEX idx_models_name ON models(name);
-CREATE INDEX idx_models_is_valid ON models(is_valid);
 CREATE INDEX idx_models_name_version ON models(name, version);
+
+-- Note: is_valid is computed from metadata IS NOT NULL AND input_shapes IS NOT NULL
+-- No separate column needed
 ```
 
 ```sql

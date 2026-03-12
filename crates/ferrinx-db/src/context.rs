@@ -135,15 +135,12 @@ impl DbContext {
             input_shapes TEXT,
             output_shapes TEXT,
             metadata TEXT,
-            is_valid INTEGER NOT NULL DEFAULT 1,
-            validation_error TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(name, version)
         );
         
         CREATE INDEX IF NOT EXISTS idx_models_name ON models(name);
-        CREATE INDEX IF NOT EXISTS idx_models_is_valid ON models(is_valid);
         CREATE INDEX IF NOT EXISTS idx_models_name_version ON models(name, version);
         "#
         .to_string()
@@ -253,8 +250,6 @@ mod tests {
             input_shapes: None,
             output_shapes: None,
             metadata: None,
-            is_valid: true,
-            validation_error: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
@@ -350,8 +345,6 @@ mod tests {
             input_shapes: None,
             output_shapes: None,
             metadata: None,
-            is_valid: true,
-            validation_error: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };

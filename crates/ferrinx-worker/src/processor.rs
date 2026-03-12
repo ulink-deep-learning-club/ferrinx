@@ -83,7 +83,7 @@ impl TaskProcessor {
             .await?
             .ok_or_else(|| WorkerError::ModelNotFound(task.model_id.to_string()))?;
 
-        if !model.is_valid {
+        if !model.is_valid() {
             return Err(WorkerError::ModelNotValid(model.id.to_string()));
         }
 

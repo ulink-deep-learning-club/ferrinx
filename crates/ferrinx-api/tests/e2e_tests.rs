@@ -421,14 +421,21 @@ async fn test_e2e_complete_workflow() {
 
     let admin_key = bootstrap["data"]["api_key"].as_str().unwrap();
 
+    let model_path = common::lenet_model_path();
+    let config_path = lenet_config_path();
+    let model_data = std::fs::read(&model_path).expect("Failed to read model file");
+    let config_data = std::fs::read_to_string(&config_path).expect("Failed to read config file");
+
+    let form = reqwest::multipart::Form::new()
+        .text("name", "workflow-model")
+        .text("version", "1.0.0")
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"))
+        .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
+
     let model: serde_json::Value = client
-        .post(format!("http://{}/api/v1/models/register", addr))
+        .post(format!("http://{}/api/v1/models/upload", addr))
         .bearer_auth(admin_key)
-        .json(&json!({
-            "name": "workflow-model",
-            "version": "1.0.0",
-            "file_path": common::lenet_model_path()
-        }))
+        .multipart(form)
         .send()
         .await
         .unwrap()
@@ -467,4 +474,183 @@ async fn test_e2e_complete_workflow() {
         .unwrap();
 
     assert!(api_key["data"]["key"].is_string());
+}
+
+fn lenet_config_path() -> String {
+    common::models_dir().join("lenet.toml").to_string_lossy().to_string()
+}
+
+fn test_image_path() -> String {
+    common::models_dir().join("1.png").to_string_lossy().to_string()
+}
+
+#[tokio::test]
+async fn test_e2e_model_upload_with_config_workflow() {
+    let test_app = TestApp::new().await;
+    let (addr, _handle) = test_app.start_server().await;
+
+    let client = reqwest::Client::new();
+
+    let bootstrap: serde_json::Value = client
+        .post(format!("http://{}/api/v1/bootstrap", addr))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let admin_key = bootstrap["data"]["api_key"].as_str().unwrap();
+
+    let model_path = common::lenet_model_path();
+    let config_path = lenet_config_path();
+    let model_data = std::fs::read(&model_path).expect("Failed to read model file");
+    let config_data = std::fs::read_to_string(&config_path).expect("Failed to read config file");
+
+    let form = reqwest::multipart::Form::new()
+        .text("name", "e2e-lenet")
+        .text("version", "1.0.0")
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"))
+        .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
+
+    let upload_response = client
+        .post(format!("http://{}/api/v1/models/upload", addr))
+        .bearer_auth(admin_key)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    assert!(upload_response.status().is_success());
+    let upload_body: serde_json::Value = upload_response.json().await.unwrap();
+    assert!(upload_body["data"]["metadata"].is_object());
+    let model_id = upload_body["data"]["id"].as_str().unwrap();
+
+    let get_response = client
+        .get(format!("http://{}/api/v1/models/{}", addr, model_id))
+        .bearer_auth(admin_key)
+        .send()
+        .await
+        .unwrap();
+
+    assert!(get_response.status().is_success());
+    let get_body: serde_json::Value = get_response.json().await.unwrap();
+    assert!(get_body["data"]["metadata"].is_object());
+}
+
+#[tokio::test]
+async fn test_e2e_image_inference_workflow() {
+    let test_app = TestApp::new().await;
+    let (addr, _handle) = test_app.start_server().await;
+
+    let client = reqwest::Client::new();
+
+    let bootstrap: serde_json::Value = client
+        .post(format!("http://{}/api/v1/bootstrap", addr))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let admin_key = bootstrap["data"]["api_key"].as_str().unwrap();
+
+    let model_path = common::lenet_model_path();
+    let config_path = lenet_config_path();
+    let model_data = std::fs::read(&model_path).expect("Failed to read model file");
+    let config_data = std::fs::read_to_string(&config_path).expect("Failed to read config file");
+
+    let form = reqwest::multipart::Form::new()
+        .text("name", "e2e-lenet-img")
+        .text("version", "1.0.0")
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"))
+        .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
+
+    let upload_response = client
+        .post(format!("http://{}/api/v1/models/upload", addr))
+        .bearer_auth(admin_key)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    assert!(upload_response.status().is_success());
+
+    let image_path = test_image_path();
+    let image_data = std::fs::read(&image_path).expect("Failed to read test image");
+
+    let infer_form = reqwest::multipart::Form::new()
+        .text("name", "e2e-lenet-img")
+        .text("version", "1.0.0")
+        .part("image", reqwest::multipart::Part::bytes(image_data).file_name("test.png"));
+
+    let infer_response = client
+        .post(format!("http://{}/api/v1/inference/image", addr))
+        .bearer_auth(admin_key)
+        .multipart(infer_form)
+        .send()
+        .await
+        .unwrap();
+
+    assert!(infer_response.status().is_success());
+    let infer_body: serde_json::Value = infer_response.json().await.unwrap();
+    assert!(infer_body["data"]["result"].is_object());
+    assert!(infer_body["data"]["latency_ms"].is_number());
+}
+
+#[tokio::test]
+async fn test_e2e_model_registration_with_metadata() {
+    let test_app = TestApp::new().await;
+    let (addr, _handle) = test_app.start_server().await;
+
+    let client = reqwest::Client::new();
+
+    let bootstrap: serde_json::Value = client
+        .post(format!("http://{}/api/v1/bootstrap", addr))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let admin_key = bootstrap["data"]["api_key"].as_str().unwrap();
+
+    let config_toml = r#"
+[[inputs]]
+name = "input"
+shape = [-1, 1, 28, 28]
+dtype = "float32"
+
+[[inputs.preprocess]]
+type = "resize"
+size = [28, 28]
+
+[[outputs]]
+name = "output"
+shape = [-1, 10]
+dtype = "float32"
+"#;
+
+    let config: ferrinx_core::model::config::ModelConfig = 
+        ferrinx_core::model::config::ModelConfig::from_toml(config_toml).unwrap();
+    let metadata = serde_json::to_value(config).unwrap();
+
+    let register_response = client
+        .post(format!("http://{}/api/v1/models/register", addr))
+        .bearer_auth(admin_key)
+        .json(&json!({
+            "name": "model-with-metadata",
+            "version": "1.0.0",
+            "file_path": common::lenet_model_path(),
+            "metadata": metadata
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert!(register_response.status().is_success());
+    let register_body: serde_json::Value = register_response.json().await.unwrap();
+    assert!(register_body["data"]["metadata"].is_object());
 }

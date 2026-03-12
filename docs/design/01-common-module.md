@@ -278,10 +278,36 @@ pub struct ModelInfo {
     pub input_shapes: Option<serde_json::Value>,
     pub output_shapes: Option<serde_json::Value>,
     pub metadata: Option<serde_json::Value>,
-    pub is_valid: bool,
-    pub validation_error: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl ModelInfo {
+    /// 生成唯一键
+    pub fn unique_key(&self) -> String {
+        format!("{}:{}", self.name, self.version)
+    }
+    
+    /// 检查模型是否有效（需要同时有 config 和 input_shapes）
+    pub fn is_valid(&self) -> bool {
+        self.metadata.is_some() && self.input_shapes.is_some()
+    }
+    
+    /// 检查是否有配置文件
+    pub fn has_config(&self) -> bool {
+        self.metadata.is_some()
+    }
+    
+    /// 获取验证错误信息
+    pub fn validation_error(&self) -> Option<String> {
+        if self.input_shapes.is_none() {
+            return Some("Model failed validation".to_string());
+        }
+        if self.metadata.is_none() {
+            return Some("Missing preprocessing config".to_string());
+        }
+        None
+    }
 }
 
 /// 任务状态

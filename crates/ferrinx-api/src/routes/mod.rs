@@ -36,6 +36,10 @@ pub fn create_router(state: AppState) -> Router {
             "/api/v1/inference/sync",
             post(handlers::inference::sync_infer),
         )
+        .route(
+            "/api/v1/inference/image",
+            post(handlers::inference::image_infer),
+        )
         .route("/api/v1/inference", post(handlers::inference::async_infer))
         .route("/api/v1/inference/{id}", get(handlers::inference::get_task))
         .route(

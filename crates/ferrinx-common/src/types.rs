@@ -144,8 +144,6 @@ pub struct ModelInfo {
     pub input_shapes: Option<serde_json::Value>,
     pub output_shapes: Option<serde_json::Value>,
     pub metadata: Option<serde_json::Value>,
-    pub is_valid: bool,
-    pub validation_error: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -153,6 +151,24 @@ pub struct ModelInfo {
 impl ModelInfo {
     pub fn unique_key(&self) -> String {
         format!("{}:{}", self.name, self.version)
+    }
+
+    pub fn is_valid(&self) -> bool {
+        self.metadata.is_some() && self.input_shapes.is_some()
+    }
+
+    pub fn has_config(&self) -> bool {
+        self.metadata.is_some()
+    }
+
+    pub fn validation_error(&self) -> Option<String> {
+        if self.input_shapes.is_none() {
+            return Some("Model failed validation".to_string());
+        }
+        if self.metadata.is_none() {
+            return Some("Missing preprocessing config".to_string());
+        }
+        None
     }
 }
 
@@ -670,11 +686,91 @@ mod tests {
             input_shapes: None,
             output_shapes: None,
             metadata: None,
-            is_valid: true,
-            validation_error: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
         assert_eq!(model.unique_key(), "resnet:1.0");
+    }
+
+    #[test]
+    fn test_model_info_is_valid() {
+        let mut model = ModelInfo {
+            id: Uuid::nil(),
+            name: "resnet".to_string(),
+            version: "1.0".to_string(),
+            file_path: "/path/to/model.onnx".to_string(),
+            file_size: Some(1024),
+            storage_backend: "local".to_string(),
+            input_shapes: Some(serde_json::json!([])),
+            output_shapes: None,
+            metadata: Some(serde_json::json!({})),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        assert!(model.is_valid());
+
+        model.metadata = None;
+        assert!(!model.is_valid());
+
+        model.metadata = Some(serde_json::json!({}));
+        model.input_shapes = None;
+        assert!(!model.is_valid());
+    }
+
+    #[test]
+    fn test_model_info_validation_error() {
+        let mut model = ModelInfo {
+            id: Uuid::nil(),
+            name: "resnet".to_string(),
+            version: "1.0".to_string(),
+            file_path: "/path/to/model.onnx".to_string(),
+            file_size: Some(1024),
+            storage_backend: "local".to_string(),
+            input_shapes: Some(serde_json::json!([])),
+            output_shapes: None,
+            metadata: Some(serde_json::json!({})),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        assert!(model.validation_error().is_none());
+
+        model.metadata = None;
+        assert_eq!(
+            model.validation_error(),
+            Some("Missing preprocessing config".to_string())
+        );
+
+        model.input_shapes = None;
+        assert_eq!(
+            model.validation_error(),
+            Some("Model failed validation".to_string())
+        );
+
+        model.metadata = Some(serde_json::json!({}));
+        assert_eq!(
+            model.validation_error(),
+            Some("Model failed validation".to_string())
+        );
+    }
+
+    #[test]
+    fn test_model_info_has_config() {
+        let mut model = ModelInfo {
+            id: Uuid::nil(),
+            name: "resnet".to_string(),
+            version: "1.0".to_string(),
+            file_path: "/path/to/model.onnx".to_string(),
+            file_size: Some(1024),
+            storage_backend: "local".to_string(),
+            input_shapes: None,
+            output_shapes: None,
+            metadata: Some(serde_json::json!({})),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        assert!(model.has_config());
+
+        model.metadata = None;
+        assert!(!model.has_config());
     }
 }

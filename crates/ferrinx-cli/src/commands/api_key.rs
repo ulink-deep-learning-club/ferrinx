@@ -77,7 +77,7 @@ pub async fn handle_api_key(
             output::print_output(&key, config.output_format)?;
         }
         ApiKeyCommands::Revoke { key_id } => {
-            let _: serde_json::Value = client.delete(&format!("/api-keys/{}", key_id)).await?;
+            client.delete_void(&format!("/api-keys/{}", key_id)).await?;
             output::print_success(&format!("API key revoked: {}", key_id));
         }
         ApiKeyCommands::Update {

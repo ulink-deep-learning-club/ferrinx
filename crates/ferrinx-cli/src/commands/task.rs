@@ -50,8 +50,7 @@ pub async fn handle_task(
             output::print_task_status(&task, config.output_format)?;
         }
         TaskCommands::Cancel { task_id } => {
-            let _: serde_json::Value = client.delete(&format!("/inference/{}", task_id)).await?;
-
+            client.delete_void(&format!("/inference/{}", task_id)).await?;
             output::print_success(&format!("Task cancelled: {}", task_id));
         }
     }

@@ -149,6 +149,7 @@ pub fn create_router(state: AppState) -> Router {
         
         // 推理
         .route("/api/v1/inference/sync", post(handlers::inference::sync_infer))
+        .route("/api/v1/inference/image", post(handlers::inference::image_infer))
         .route("/api/v1/inference", post(handlers::inference::async_infer))
         .route("/api/v1/inference/:id", get(handlers::inference::get_task))
         .route("/api/v1/inference/:id", delete(handlers::inference::cancel_task))
@@ -246,6 +247,15 @@ pub struct AsyncInferResponse {
     pub status: String,
 }
 
+/// 图像推理响应
+#[derive(Debug, Serialize)]
+pub struct ImageInferResponse {
+    pub outputs: HashMap<String, serde_json::Value>,
+    pub latency_ms: u64,
+    pub label: Option<String>,
+    pub confidence: Option<f32>,
+}
+
 /// 同步推理
 pub async fn sync_infer(
     State(state): State<AppState>,
@@ -263,7 +273,7 @@ pub async fn sync_infer(
         .await?
         .ok_or(ApiError::ModelNotFound)?;
     
-    if !model.is_valid {
+    if !model.is_valid() {
         return Err(ApiError::ModelNotValid);
     }
     
@@ -284,6 +294,73 @@ pub async fn sync_infer(
     
     Ok(Json(ApiResponse::success(SyncInferResponse {
         outputs: output.outputs,
+        latency_ms: output.latency_ms,
+    })))
+}
+
+/// 图像推理（带预处理）
+pub async fn image_infer(
+    State(state): State<AppState>,
+    Extension(api_key): Extension<ApiKeyInfo>,
+    mut multipart: Multipart,
+) -> Result<Json<ApiResponse<ImageInferResponse>>, ApiError> {
+    // 验证权限
+    if !api_key.permissions.inference.contains(&"execute".to_string()) {
+        return Err(ApiError::PermissionDenied);
+    }
+    
+    // 解析 multipart 表单
+    let mut model_id: Option<String> = None;
+    let mut model_name: Option<String> = None;
+    let mut model_version: Option<String> = None;
+    let mut image_data: Option<Vec<u8>> = None;
+    
+    while let Some(field) = multipart.next_field().await? {
+        match field.name() {
+            Some("model_id") => model_id = Some(field.text().await?),
+            Some("name") => model_name = Some(field.text().await?),
+            Some("version") => model_version = Some(field.text().await?),
+            Some("image") => image_data = Some(field.bytes().await?.to_vec()),
+            _ => {}
+        }
+    }
+    
+    let image_data = image_data.ok_or(ApiError::BadRequest("No image uploaded"))?;
+    
+    // 获取模型
+    let model = if let Some(id) = model_id {
+        state.db.models.find_by_id(&uuid::Uuid::parse_str(&id)?).await?
+            .ok_or(ApiError::ModelNotFound)?
+    } else if let (Some(name), Some(version)) = (model_name, model_version) {
+        state.db.models.find_by_name_version(&name, &version).await?
+            .ok_or(ApiError::ModelNotFound)?
+    } else {
+        return Err(ApiError::BadRequest("Either model_id or name+version required"));
+    };
+    
+    if !model.is_valid() {
+        return Err(ApiError::ModelNotValid);
+    }
+    
+    // 解析模型配置
+    let config: ModelConfig = model.metadata.as_ref()
+        .ok_or(ApiError::ModelNotValid)?
+        .try_into()?;
+    
+    // 预处理图像
+    let input_tensor = config.preprocess_image(&image_data)?;
+    
+    // 执行推理
+    let input = InferenceInput { 
+        inputs: input_tensor 
+    };
+    let output = state.engine.infer(&model.id, &model.file_path, input).await?;
+    
+    // 后处理
+    let result = config.postprocess(&output.outputs)?;
+    
+    Ok(Json(ApiResponse::success(ImageInferResponse {
+        result,
         latency_ms: output.latency_ms,
     })))
 }
@@ -309,7 +386,7 @@ pub async fn async_infer(
         .await?
         .ok_or(ApiError::ModelNotFound)?;
     
-    if !model.is_valid {
+    if !model.is_valid() {
         return Err(ApiError::ModelNotValid);
     }
     
@@ -703,12 +780,46 @@ pub struct ModelDetail {
     pub input_shapes: Option<serde_json::Value>,
     /// 输出层信息（包含层名、形状、数据类型）
     pub output_shapes: Option<serde_json::Value>,
+    /// 模型配置（预处理/后处理管道）
+    pub metadata: Option<serde_json::Value>,
+    /// 模型是否有效（computed: metadata && input_shapes）
     pub is_valid: bool,
+    /// 验证错误信息（computed）
     pub validation_error: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
+
+impl From<ferrinx_common::ModelInfo> for ModelDetail {
+    fn from(model: ferrinx_common::ModelInfo) -> Self {
+        let is_valid = model.is_valid();
+        let validation_error = model.validation_error();
+        Self {
+            id: model.id.to_string(),
+            name: model.name,
+            version: model.version,
+            file_path: model.file_path,
+            file_size: model.file_size,
+            input_shapes: model.input_shapes,
+            output_shapes: model.output_shapes,
+            metadata: model.metadata,
+            is_valid,
+            validation_error,
+            created_at: model.created_at.to_rfc3339(),
+            updated_at: model.updated_at.to_rfc3339(),
+        }
+    }
+}
 ```
+
+**is_valid 计算规则**：
+- `is_valid = metadata.is_some() && input_shapes.is_some()`
+- 模型需要有配置文件（metadata）和验证通过的输入形状才能用于推理
+
+**validation_error 计算规则**：
+- 如果 `input_shapes.is_none()` → "Model failed validation"
+- 如果 `metadata.is_none()` → "Missing preprocessing config"
+- 否则 → `None`
 
 **input_shapes / output_shapes 格式**：
 

@@ -10,12 +10,6 @@ pub trait ModelRepository: Send + Sync {
     async fn find_by_name_version(&self, name: &str, version: &str) -> Result<Option<ModelInfo>>;
     async fn list(&self, filter: &ModelFilter) -> Result<Vec<ModelInfo>>;
     async fn delete(&self, id: &uuid::Uuid) -> Result<bool>;
-    async fn update_validation_status(
-        &self,
-        id: &uuid::Uuid,
-        is_valid: bool,
-        error: Option<&str>,
-    ) -> Result<()>;
     async fn exists(&self, name: &str, version: &str) -> Result<bool>;
 }
 

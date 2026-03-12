@@ -14,6 +14,8 @@ pub enum ModelCommands {
         name: String,
         #[arg(short, long)]
         version: String,
+        #[arg(long)]
+        model_config: Option<String>,
     },
     Register {
         server_path: String,
@@ -21,6 +23,8 @@ pub enum ModelCommands {
         name: String,
         #[arg(short, long)]
         version: String,
+        #[arg(long)]
+        model_config: Option<String>,
     },
     List {
         #[arg(short, long)]
@@ -35,6 +39,8 @@ pub enum ModelCommands {
         name: Option<String>,
         #[arg(short, long)]
         version: Option<String>,
+        #[arg(long)]
+        model_config: Option<String>,
     },
     Delete {
         #[arg(short, long)]
@@ -67,13 +73,14 @@ pub async fn handle_model(
             model_path,
             name,
             version,
+            model_config: config_path,
         } => {
             let mut form_data = HashMap::new();
             form_data.insert("name".to_string(), name.clone());
             form_data.insert("version".to_string(), version.clone());
 
             let response: ModelResponse = client
-                .upload("/models/upload", &model_path, form_data)
+                .upload_with_config("/models/upload", &model_path, form_data, config_path.as_deref())
                 .await?;
 
             output::print_success("Model uploaded");
@@ -88,13 +95,21 @@ pub async fn handle_model(
             server_path,
             name,
             version,
+            model_config: config_path,
         } => {
+            let config_content = if let Some(path) = config_path {
+                Some(std::fs::read_to_string(&path)?)
+            } else {
+                None
+            };
+
             let request = RegisterModelRequest {
                 file_path: server_path,
                 name,
                 version,
+                config: config_content,
             };
-
+            
             let response: ModelResponse = client.post("/models/register", &request).await?;
 
             output::print_success("Model registered");
@@ -122,6 +137,7 @@ pub async fn handle_model(
             model_id,
             name,
             version,
+            model_config: config_path,
         } => {
             #[derive(serde::Serialize)]
             struct UpdateModelRequest {
@@ -129,14 +145,26 @@ pub async fn handle_model(
                 name: Option<String>,
                 #[serde(skip_serializing_if = "Option::is_none")]
                 version: Option<String>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                config: Option<String>,
             }
+            
+            let config_content = if let Some(path) = config_path {
+                Some(std::fs::read_to_string(&path)?)
+            } else {
+                None
+            };
 
-            let request = UpdateModelRequest { name, version };
+            let request = UpdateModelRequest { 
+                name, 
+                version,
+                config: config_content,
+            };
             let model: ModelDetail = client.put(&format!("/models/{}", model_id), &request).await?;
             output::print_success(&format!("Model updated: {}", model.name));
         }
         ModelCommands::Delete { name, version } => {
-            let _: serde_json::Value = client.delete(&format!("/models/{}/{}", name, version)).await?;
+            client.delete_void(&format!("/models/{}/{}", name, version)).await?;
             output::print_success(&format!("Model deleted: {}:{}", name, version));
         }
     }

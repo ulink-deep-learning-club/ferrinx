@@ -86,12 +86,34 @@ impl TestDb {
     }
 
     pub async fn create_model(&self, name: &str, version: &str) -> ModelInfo {
+        self.create_model_with_config(name, version, true).await
+    }
+
+    pub async fn create_model_with_config(&self, name: &str, version: &str, with_config: bool) -> ModelInfo {
         let model_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/common/models/lenet.onnx");
         
         let file_size = std::fs::metadata(&model_path)
             .map(|m| m.len() as i64)
             .ok();
+
+        let metadata = if with_config {
+            Some(serde_json::json!({
+                "inputs": {
+                    "preprocess": [
+                        {"type": "resize", "size": [28, 28]},
+                        {"type": "normalize", "mean": 0.5, "std": 0.5}
+                    ]
+                },
+                "outputs": {
+                    "postprocess": [
+                        {"type": "argmax"}
+                    ]
+                }
+            }))
+        } else {
+            None
+        };
 
         let model = ModelInfo {
             id: Uuid::new_v4(),
@@ -100,11 +122,13 @@ impl TestDb {
             file_path: model_path.to_string_lossy().to_string(),
             file_size,
             storage_backend: "local".to_string(),
-            input_shapes: None,
-            output_shapes: None,
-            metadata: None,
-            is_valid: true,
-            validation_error: None,
+            input_shapes: Some(serde_json::json!([
+                {"name": "import/Placeholder:0", "shape": [1, 1, 28, 28], "element_type": "float32"}
+            ])),
+            output_shapes: Some(serde_json::json!([
+                {"name": "output", "shape": [1, 10], "element_type": "float32"}
+            ])),
+            metadata,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };

@@ -106,6 +106,7 @@ pub struct ModelDetail {
     pub file_size: Option<i64>,
     pub input_shapes: Option<serde_json::Value>,
     pub output_shapes: Option<serde_json::Value>,
+    pub metadata: Option<serde_json::Value>,
     pub is_valid: bool,
     pub validation_error: Option<String>,
     pub created_at: String,
@@ -114,6 +115,8 @@ pub struct ModelDetail {
 
 impl From<ferrinx_common::ModelInfo> for ModelDetail {
     fn from(model: ferrinx_common::ModelInfo) -> Self {
+        let is_valid = model.is_valid();
+        let validation_error = model.validation_error();
         Self {
             id: model.id.to_string(),
             name: model.name,
@@ -122,8 +125,9 @@ impl From<ferrinx_common::ModelInfo> for ModelDetail {
             file_size: model.file_size,
             input_shapes: model.input_shapes,
             output_shapes: model.output_shapes,
-            is_valid: model.is_valid,
-            validation_error: model.validation_error,
+            metadata: model.metadata,
+            is_valid,
+            validation_error,
             created_at: model.created_at.to_rfc3339(),
             updated_at: model.updated_at.to_rfc3339(),
         }

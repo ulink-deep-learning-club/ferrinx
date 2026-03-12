@@ -1,32 +1,37 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelConfig {
-    pub meta: ModelMeta,
-    pub model: ModelFile,
+    #[serde(default)]
+    pub meta: Option<ModelMeta>,
+    #[serde(default)]
+    pub model: Option<ModelFile>,
     #[serde(default)]
     pub inputs: Vec<InputConfig>,
     #[serde(default)]
     pub outputs: Vec<OutputConfig>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelMeta {
+    #[serde(default)]
     pub name: String,
+    #[serde(default)]
     pub version: String,
     #[serde(default)]
     pub description: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelFile {
+    #[serde(default)]
     pub file: String,
     #[serde(default)]
     pub labels: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputConfig {
     pub name: String,
     #[serde(default)]
@@ -39,7 +44,7 @@ pub struct InputConfig {
     pub preprocess: Vec<PreprocessOp>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputConfig {
     pub name: String,
     #[serde(default)]
@@ -56,7 +61,7 @@ fn default_dtype() -> String {
     "float32".to_string()
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum PreprocessOp {
     #[serde(rename = "resize")]
@@ -102,7 +107,7 @@ pub enum PreprocessOp {
     },
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum PostprocessOp {
     #[serde(rename = "softmax")]
@@ -141,7 +146,7 @@ pub enum PostprocessOp {
     },
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LabelMapping {
     pub labels: Vec<String>,
     #[serde(default)]
@@ -159,11 +164,13 @@ impl ModelConfig {
     }
 
     pub fn load_labels(&self, base_path: &Path) -> Option<LabelMapping> {
-        self.model.labels.as_ref().and_then(|label_file| {
-            let label_path = base_path.join(label_file);
-            std::fs::read_to_string(label_path)
-                .ok()
-                .and_then(|content| serde_json::from_str(&content).ok())
+        self.model.as_ref().and_then(|m| {
+            m.labels.as_ref().and_then(|label_file| {
+                let label_path = base_path.join(label_file);
+                std::fs::read_to_string(label_path)
+                    .ok()
+                    .and_then(|content| serde_json::from_str(&content).ok())
+            })
         })
     }
 
@@ -227,9 +234,9 @@ keep_prob = true
 
         let config = ModelConfig::from_toml(toml_content).unwrap();
 
-        assert_eq!(config.meta.name, "lenet-mnist");
-        assert_eq!(config.meta.version, "1.0");
-        assert_eq!(config.model.file, "lenet.onnx");
+        assert_eq!(config.meta.as_ref().unwrap().name, "lenet-mnist");
+        assert_eq!(config.meta.as_ref().unwrap().version, "1.0");
+        assert_eq!(config.model.as_ref().unwrap().file, "lenet.onnx");
         assert_eq!(config.inputs.len(), 1);
         assert_eq!(config.outputs.len(), 1);
 
@@ -261,15 +268,15 @@ keep_prob = true
     #[test]
     fn test_input_by_name() {
         let config = ModelConfig {
-            meta: ModelMeta {
+            meta: Some(ModelMeta {
                 name: "test".to_string(),
                 version: "1.0".to_string(),
                 description: String::new(),
-            },
-            model: ModelFile {
+            }),
+            model: Some(ModelFile {
                 file: "test.onnx".to_string(),
                 labels: None,
-            },
+            }),
             inputs: vec![InputConfig {
                 name: "input.1".to_string(),
                 alias: Some("image".to_string()),
@@ -283,5 +290,28 @@ keep_prob = true
         assert!(config.input_by_name("input.1").is_some());
         assert!(config.input_by_name("image").is_some());
         assert!(config.input_by_name("unknown").is_none());
+    }
+
+    #[test]
+    fn test_minimal_config() {
+        let toml_content = r#"
+[[inputs]]
+name = "input"
+shape = [-1, 1, 28, 28]
+
+[[inputs.preprocess]]
+type = "resize"
+size = [28, 28]
+
+[[outputs]]
+name = "output"
+shape = [-1, 10]
+"#;
+
+        let config = ModelConfig::from_toml(toml_content).unwrap();
+        assert!(config.meta.is_none());
+        assert!(config.model.is_none());
+        assert_eq!(config.inputs.len(), 1);
+        assert_eq!(config.outputs.len(), 1);
     }
 }
