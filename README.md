@@ -389,7 +389,7 @@ Apache-2.0
 |---------|----------|-------------|
 | **Model Configuration System** | `ferrinx-core/src/model/config.rs` | TOML-based model configuration with preprocessing/postprocessing pipelines |
 | **Preprocessing Pipelines** | `ferrinx-core/src/transform/pipeline.rs` | Full preprocessing operations: resize, grayscale, normalize, to_tensor, transpose, squeeze, unsqueeze, reshape, center_crop, pad |
-| **Postprocessing Pipelines** | `ferrinx-core/src/transform/pipeline.rs` | Most postprocessing operations: softmax, sigmoid, argmax, top_k, threshold, slice, map_labels |
+| **Postprocessing Pipelines** | `ferrinx-core/src/transform/pipeline.rs` | Full postprocessing operations: softmax, sigmoid, argmax, top_k, threshold, slice, map_labels, nms |
 | **Model Routing** | `ferrinx-common/src/redis.rs` + `ferrinx-worker/src/model_reporter.rs` | Worker model status reporting and intelligent task routing (cached → available → error) |
 | **Synchronous Inference** | `ferrinx-api/src/handlers/inference.rs` | Low-latency in-process inference with LRU cache and semaphore-based concurrency control |
 | **Asynchronous Inference** | `ferrinx-api/src/handlers/inference.rs` + `ferrinx-worker/` | Redis Streams-based task queue with worker pool |
@@ -410,15 +410,8 @@ Apache-2.0
 | **Transaction Support** | `ferrinx-db/src/context.rs` | Basic transaction begin/commit | Transaction methods (`save_tx`, `delete_tx`, `delete_by_user_tx`) not implemented in repositories |
 | **Database Backends** | `ferrinx-db/` | SQLite fully implemented | PostgreSQL implementation pending |
 | **GPU Execution Providers** | `ferrinx-core/src/inference/engine.rs` | CPU, CUDA, TensorRT, CoreML, ROCm all implemented | Only CoreML tested (on macOS); CUDA/TensorRT/ROCm need Linux/Windows + GPU hardware |
-| **Postprocessing Operations** | `ferrinx-core/src/transform/pipeline.rs` | Most operations complete | NMS (Non-Maximum Suppression) returns unsupported error |
 
 ### ❌ Not Started
-
-#### High Priority
-
-| Feature | Location | Description |
-|---------|----------|-------------|
-| **NMS Postprocessing** | `ferrinx-core/src/transform/pipeline.rs:298` | Non-Maximum Suppression for object detection models - returns "not yet implemented" error |
 
 #### Medium Priority
 

@@ -298,10 +298,11 @@ impl PostprocessPipeline {
             PostprocessOp::Nms {
                 iou_threshold,
                 score_threshold,
-            } => Err(TransformError::UnsupportedOperation(format!(
-                "NMS with iou={}, score={} not yet implemented",
-                iou_threshold, score_threshold
-            ))),
+            } => {
+                let tensor = data.into_tensor_f32()?;
+                let detections = apply_nms(&tensor, *iou_threshold, *score_threshold)?;
+                Ok(TransformData::Json(serde_json::to_value(detections)?))
+            }
         }
     }
 }
@@ -381,6 +382,112 @@ fn pad_image(
     let img_rgb = img.to_rgb8();
     image::imageops::overlay(&mut padded, &img_rgb, left as i64, top as i64);
     image::DynamicImage::ImageRgb8(padded)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Detection {
+    pub bbox: [f32; 4],
+    pub score: f32,
+    pub class_id: usize,
+}
+
+fn apply_nms(
+    tensor: &ArrayD<f32>,
+    iou_threshold: f32,
+    score_threshold: f32,
+) -> Result<Vec<Detection>, TransformError> {
+    let shape = tensor.shape();
+
+    if shape.len() < 2 || shape[1] < 5 {
+        return Err(TransformError::InvalidInput(
+            "NMS expects tensor shape [N, 6+] (x1, y1, x2, y2, score, class_id...) or [N, 5+] (x1, y1, x2, y2, score)".to_string(),
+        ));
+    }
+
+    let num_detections = shape[0];
+    let mut candidates: Vec<(usize, f32, [f32; 4], usize)> = Vec::new();
+
+    for i in 0..num_detections {
+        let x1 = tensor[[i, 0]];
+        let y1 = tensor[[i, 1]];
+        let x2 = tensor[[i, 2]];
+        let y2 = tensor[[i, 3]];
+        let score = tensor[[i, 4]];
+        let class_id = if shape[1] > 5 {
+            tensor[[i, 5]] as usize
+        } else {
+            0
+        };
+
+        if score >= score_threshold {
+            candidates.push((i, score, [x1, y1, x2, y2], class_id));
+        }
+    }
+
+    candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+
+    let mut keep = vec![true; candidates.len()];
+
+    for i in 0..candidates.len() {
+        if !keep[i] {
+            continue;
+        }
+
+        let (_, _, box_i, class_i) = &candidates[i];
+
+        for j in (i + 1)..candidates.len() {
+            if !keep[j] {
+                continue;
+            }
+
+            let (_, _, box_j, class_j) = &candidates[j];
+
+            if class_i == class_j {
+                let iou = compute_iou(box_i, box_j);
+                if iou > iou_threshold {
+                    keep[j] = false;
+                }
+            }
+        }
+    }
+
+    let result: Vec<Detection> = candidates
+        .into_iter()
+        .zip(keep.iter())
+        .filter_map(|((_, score, bbox, class_id), &keep)| {
+            if keep {
+                Some(Detection {
+                    bbox,
+                    score,
+                    class_id,
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Ok(result)
+}
+
+fn compute_iou(box1: &[f32; 4], box2: &[f32; 4]) -> f32 {
+    let x1 = box1[0].max(box2[0]);
+    let y1 = box1[1].max(box2[1]);
+    let x2 = box1[2].min(box2[2]);
+    let y2 = box1[3].min(box2[3]);
+
+    let intersection = (x2 - x1).max(0.0) * (y2 - y1).max(0.0);
+
+    let area1 = (box1[2] - box1[0]) * (box1[3] - box1[1]);
+    let area2 = (box2[2] - box2[0]) * (box2[3] - box2[1]);
+
+    let union = area1 + area2 - intersection;
+
+    if union <= 0.0 {
+        0.0
+    } else {
+        intersection / union
+    }
 }
 
 impl TransformData {
@@ -713,5 +820,69 @@ mod tests {
 
         let idx = result.get("Index").unwrap().as_u64().unwrap();
         assert_eq!(idx, 1);
+    }
+
+    #[test]
+    fn test_postprocess_nms() {
+        let pipeline = PostprocessPipeline::new(
+            vec![PostprocessOp::Nms {
+                iou_threshold: 0.5,
+                score_threshold: 0.3,
+            }],
+            None,
+        );
+
+        let data = vec![
+            10.0, 10.0, 50.0, 50.0, 0.9, 0.0, 12.0, 12.0, 52.0, 52.0, 0.8, 0.0, 100.0, 100.0,
+            150.0, 150.0, 0.7, 1.0, 105.0, 105.0, 155.0, 155.0, 0.6, 1.0, 200.0, 200.0, 250.0,
+            250.0, 0.2, 0.0,
+        ];
+        let tensor = ArrayD::from_shape_vec(IxDyn(&[5, 6]), data).unwrap();
+        let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
+
+        let detections: Vec<Detection> = serde_json::from_value(result).unwrap();
+        assert_eq!(detections.len(), 2);
+
+        assert_eq!(detections[0].class_id, 0);
+        assert!((detections[0].score - 0.9).abs() < 1e-6);
+
+        assert_eq!(detections[1].class_id, 1);
+        assert!((detections[1].score - 0.7).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_postprocess_nms_without_class_id() {
+        let pipeline = PostprocessPipeline::new(
+            vec![PostprocessOp::Nms {
+                iou_threshold: 0.5,
+                score_threshold: 0.5,
+            }],
+            None,
+        );
+
+        let data = vec![
+            0.0, 0.0, 10.0, 10.0, 0.9, 1.0, 1.0, 11.0, 11.0, 0.8, 50.0, 50.0, 60.0, 60.0, 0.7,
+        ];
+        let tensor = ArrayD::from_shape_vec(IxDyn(&[3, 5]), data).unwrap();
+        let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
+
+        let detections: Vec<Detection> = serde_json::from_value(result).unwrap();
+        assert_eq!(detections.len(), 2);
+        assert_eq!(detections[0].class_id, 0);
+        assert_eq!(detections[1].class_id, 0);
+    }
+
+    #[test]
+    fn test_compute_iou() {
+        let box1 = [0.0, 0.0, 10.0, 10.0];
+        let box2 = [5.0, 5.0, 15.0, 15.0];
+        let iou = compute_iou(&box1, &box2);
+
+        let expected = 25.0 / 175.0;
+        assert!((iou - expected).abs() < 1e-6);
+
+        let box3 = [20.0, 20.0, 30.0, 30.0];
+        let iou_no_overlap = compute_iou(&box1, &box3);
+        assert!((iou_no_overlap - 0.0).abs() < 1e-6);
     }
 }
