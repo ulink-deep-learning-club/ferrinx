@@ -186,14 +186,26 @@ impl InferenceEngine {
         Ok(Arc::new(session))
     }
     
-    /// 准备输入张量
-    fn prepare_inputs(
-        &self,
-        session: &Session,
-        inputs: InferenceInput,
-    ) -> Result<HashMap<String, ort::Value>, CoreError> {
-        let mut input_tensors = HashMap::new();
+/// 准备输入张量
+fn prepare_inputs(
+    &self,
+    session: &Session,
+    inputs: InferenceInput,
+) -> Result<HashMap<String, ort::Value>, CoreError> {
+    let mut input_tensors = HashMap::new();
+    let session_inputs = session.inputs();
+    
+    // 单输入模型自动匹配：如果模型只有一个输入且请求也只有一个输入，
+    // 则自动匹配，无需用户提供精确的层名称
+    if session_inputs.len() == 1 && inputs.inputs.len() == 1 {
+        let input_info = &session_inputs[0];
+        let actual_name = input_info.name().to_string();
+        let (_, input_data) = inputs.inputs.iter().next().unwrap();
         
+        let tensor = self.value_to_tensor(input_data.clone(), &input_info.input_type)?;
+        input_tensors.insert(actual_name, tensor);
+    } else {
+        // 多输入模型：必须提供精确的层名称
         for (input_name, input_data) in inputs.inputs {
             let input_info = session
                 .inputs
@@ -203,9 +215,10 @@ impl InferenceEngine {
             let tensor = self.value_to_tensor(input_data, &input_info.input_type)?;
             input_tensors.insert(input_name, tensor);
         }
-        
-        Ok(input_tensors)
     }
+    
+    Ok(input_tensors)
+}
     
     /// 将 JSON 值转换为 ONNX 张量
     fn value_to_tensor(
@@ -567,7 +580,33 @@ type = "map_labels"        # 使用 labels.json 映射
 | `threshold` | `value` | 阈值过滤 |
 | `slice` | `start`, `end` | 切片 |
 | `map_labels` | - | 索引映射标签 |
-| `nms` | `iou_threshold`, `score_threshold` | 非极大值抑制 |
+| `nms` | `iou_threshold`, `score_threshold` | 非极大值抑制（已实现）|
+
+**NMS 实现说明：**
+
+NMS (Non-Maximum Suppression) 用于目标检测模型的后处理，支持两种输入格式：
+
+- **6列格式**：`[x1, y1, x2, y2, score, class_id]` - 支持多类别检测
+- **5列格式**：`[x1, y1, x2, y2, score]` - 单类别检测，class_id 默认为 0
+
+```toml
+# NMS 配置示例
+[[outputs.postprocess]]
+type = "nms"
+iou_threshold = 0.45
+score_threshold = 0.25
+```
+
+输出格式：
+```json
+[
+  {
+    "bbox": [x1, y1, x2, y2],
+    "score": 0.95,
+    "class_id": 0
+  }
+]
+```
 
 #### 2.3.2 配置文件 + Lua 脚本方式（预留扩展）
 

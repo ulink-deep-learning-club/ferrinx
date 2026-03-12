@@ -461,16 +461,25 @@ async fn prepare_inputs(
 ) -> Result<HashMap<String, ort::value::Value>> {
     let session_guard = session.lock().await;
     let mut input_tensors = HashMap::new();
+    let session_inputs = session_guard.inputs();
 
-    for (input_name, input_data) in &inputs.inputs {
-        let input_info = session_guard
-            .inputs()
-            .iter()
-            .find(|i| i.name() == input_name)
-            .ok_or_else(|| CoreError::InputNotFound(input_name.clone()))?;
-
+    if session_inputs.len() == 1 && inputs.inputs.len() == 1 {
+        let input_info = &session_inputs[0];
+        let actual_name = input_info.name().to_string();
+        let (_, input_data) = inputs.inputs.iter().next().unwrap();
+        
         let tensor = value_to_tensor(input_data.clone(), input_info.dtype())?;
-        input_tensors.insert(input_name.clone(), tensor);
+        input_tensors.insert(actual_name, tensor);
+    } else {
+        for (input_name, input_data) in &inputs.inputs {
+            let input_info = session_inputs
+                .iter()
+                .find(|i| i.name() == input_name)
+                .ok_or_else(|| CoreError::InputNotFound(input_name.clone()))?;
+
+            let tensor = value_to_tensor(input_data.clone(), input_info.dtype())?;
+            input_tensors.insert(input_name.clone(), tensor);
+        }
     }
 
     Ok(input_tensors)

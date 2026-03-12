@@ -680,6 +680,68 @@ Authorization: Bearer frx_sk_a3b8f2e1d4c5a6b7e8f9d0c1b2a3e4f5
 }
 ```
 
+#### 输入层名称处理
+
+**问题**：ONNX 模型的输入层名称通常由训练框架自动生成（如 `"import/Placeholder:0"` 或 `"input.1"`），用户很难知道确切的名称。
+
+**解决方案**：
+
+1. **单输入模型自动匹配**：如果模型只有 1 个输入且请求也只有 1 个输入，自动匹配，无需用户提供精确层名。
+
+2. **多输入模型需精确名称**：用户需先查询 `GET /models/{id}` 获取 `input_shapes`，然后使用精确层名。
+
+**实现逻辑**（`ferrinx-core/src/inference/engine.rs`）：
+
+```rust
+fn prepare_inputs(
+    &self,
+    session: &Session,
+    inputs: InferenceInput,
+) -> Result<HashMap<String, ort::Value>, CoreError> {
+    let mut input_tensors = HashMap::new();
+    let session_inputs = session.inputs();
+    
+    // 单输入模型自动匹配
+    if session_inputs.len() == 1 && inputs.inputs.len() == 1 {
+        let input_info = &session_inputs[0];
+        let actual_name = input_info.name().to_string();
+        let (_, input_data) = inputs.inputs.iter().next().unwrap();
+        
+        let tensor = self.value_to_tensor(input_data.clone(), &input_info.input_type)?;
+        input_tensors.insert(actual_name, tensor);
+    } else {
+        // 多输入模型：必须提供精确层名
+        for (input_name, input_data) in inputs.inputs {
+            let input_info = session
+                .inputs
+                .get(&input_name)
+                .ok_or_else(|| CoreError::InputNotFound(input_name.clone()))?;
+            
+            let tensor = self.value_to_tensor(input_data, &input_info.input_type)?;
+            input_tensors.insert(input_name, tensor);
+        }
+    }
+    
+    Ok(input_tensors)
+}
+```
+
+**API 响应示例**：
+
+```json
+// GET /api/v1/models/model-123
+{
+  "id": "model-123",
+  "name": "lenet-mnist",
+  "input_shapes": [
+    {"name": "input.1", "shape": [-1, 1, 28, 28], "element_type": "float32"}
+  ],
+  "output_shapes": [
+    {"name": "output.1", "shape": [-1, 10], "element_type": "float32"}
+  ]
+}
+```
+
 #### 异步推理请求
 
 ```json

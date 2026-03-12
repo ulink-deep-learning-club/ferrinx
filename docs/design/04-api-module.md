@@ -684,6 +684,91 @@ fn generate_request_id() -> String {
 }
 ```
 
+### 2.6 模型详情 DTO
+
+```rust
+// src/dto/mod.rs
+
+/// 模型详情响应
+#[derive(Debug, Serialize)]
+pub struct ModelDetail {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub file_path: String,
+    pub file_size: Option<i64>,
+    /// 输入层信息（包含层名、形状、数据类型）
+    pub input_shapes: Option<serde_json::Value>,
+    /// 输出层信息（包含层名、形状、数据类型）
+    pub output_shapes: Option<serde_json::Value>,
+    pub is_valid: bool,
+    pub validation_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+```
+
+**input_shapes / output_shapes 格式**：
+
+```json
+{
+  "input_shapes": [
+    {
+      "name": "input.1",
+      "shape": [-1, 1, 28, 28],
+      "element_type": "float32"
+    }
+  ],
+  "output_shapes": [
+    {
+      "name": "output.1", 
+      "shape": [-1, 10],
+      "element_type": "float32"
+    }
+  ]
+}
+```
+
+**使用场景**：
+
+1. **单输入模型**：用户可使用任意 key 名称（如 `"input"`），系统自动匹配
+2. **多输入模型**：用户需先查询 `GET /api/v1/models/{id}` 获取 `input_shapes`，然后使用精确的层名
+
+**示例**：
+
+```bash
+# 查询模型详情获取输入层名
+curl -H "Authorization: Bearer $API_KEY" \
+  http://localhost:8080/api/v1/models/model-123
+
+# 响应
+{
+  "request_id": "req-xxx",
+  "data": {
+    "id": "model-123",
+    "name": "lenet-mnist",
+    "version": "1.0",
+    "input_shapes": [
+      {"name": "input.1", "shape": [-1, 1, 28, 28], "element_type": "float32"}
+    ],
+    "output_shapes": [
+      {"name": "output.1", "shape": [-1, 10], "element_type": "float32"}
+    ],
+    ...
+  }
+}
+
+# 单输入模型 - 任意 key 名称可用
+curl -X POST -H "Authorization: Bearer $API_KEY" \
+  -d '{"model_id": "model-123", "inputs": {"input": [[1.0, 2.0, ...]]}}' \
+  http://localhost:8080/api/v1/inference/sync
+
+# 多输入模型 - 必须使用精确层名
+curl -X POST -H "Authorization: Bearer $API_KEY" \
+  -d '{"model_id": "multi-input-model", "inputs": {"image": [...], "mask": [...]}}' \
+  http://localhost:8080/api/v1/inference/sync
+```
+
 ### 2.6 错误处理
 
 ```rust

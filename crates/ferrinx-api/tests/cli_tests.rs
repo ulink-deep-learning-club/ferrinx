@@ -309,7 +309,7 @@ async fn test_inference_via_client() {
             &serde_json::json!({
                 "model_id": model.id.to_string(),
                 "inputs": {
-                    "import/Placeholder:0": input_data
+                    "input": input_data
                 }
             }),
         )
