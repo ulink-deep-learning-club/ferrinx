@@ -193,3 +193,217 @@ impl TaskProcessor {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use ferrinx_common::{ModelInfo, TaskStatus};
+    use ferrinx_core::InferenceEngine;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    struct MockRedis {
+        xadd_calls: std::sync::Mutex<Vec<(String, HashMap<String, String>)>>,
+    }
+
+    impl MockRedis {
+        fn new() -> Self {
+            Self {
+                xadd_calls: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl RedisClient for MockRedis {
+        async fn xread_group(
+            &self,
+            _group: &str,
+            _consumer: &str,
+            _stream: &str,
+            _count: usize,
+            _block_ms: u64,
+        ) -> crate::error::Result<Option<Vec<crate::redis::StreamEntry>>> {
+            Ok(None)
+        }
+
+        async fn xack(
+            &self,
+            _stream: &str,
+            _group: &str,
+            _entry_id: &str,
+        ) -> crate::error::Result<()> {
+            Ok(())
+        }
+
+        async fn xpending(
+            &self,
+            _stream: &str,
+            _group: &str,
+            _count: usize,
+        ) -> crate::error::Result<Vec<crate::redis::PendingInfo>> {
+            Ok(Vec::new())
+        }
+
+        async fn xclaim(
+            &self,
+            _stream: &str,
+            _group: &str,
+            _consumer: &str,
+            _min_idle_ms: i64,
+            _entry_ids: &[&str],
+        ) -> crate::error::Result<Vec<crate::redis::StreamEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn xadd(
+            &self,
+            stream: &str,
+            data: &HashMap<String, String>,
+        ) -> crate::error::Result<String> {
+            let mut calls = self.xadd_calls.lock().unwrap();
+            calls.push((stream.to_string(), data.clone()));
+            Ok("test-entry-id".to_string())
+        }
+
+        async fn set_json(
+            &self,
+            _key: &str,
+            _value: &serde_json::Value,
+            _ttl: Duration,
+        ) -> crate::error::Result<()> {
+            Ok(())
+        }
+
+        async fn get_json(
+            &self,
+            _key: &str,
+        ) -> crate::error::Result<Option<serde_json::Value>> {
+            Ok(None)
+        }
+
+        async fn del(&self, _key: &str) -> crate::error::Result<()> {
+            Ok(())
+        }
+
+        async fn health_check(&self) -> crate::error::Result<()> {
+            Ok(())
+        }
+
+        async fn set_worker_heartbeat(&self, _worker_id: &str) -> crate::error::Result<()> {
+            Ok(())
+        }
+
+        async fn set_worker_models(
+            &self,
+            _worker_id: &str,
+            _models: &HashMap<String, String>,
+        ) -> crate::error::Result<()> {
+            Ok(())
+        }
+
+        async fn get_worker_models(
+            &self,
+            _worker_id: &str,
+        ) -> crate::error::Result<HashMap<String, String>> {
+            Ok(HashMap::new())
+        }
+
+        async fn get_model_workers(&self, _model_id: &Uuid) -> crate::error::Result<Vec<String>> {
+            Ok(Vec::new())
+        }
+
+        async fn remove_worker_models(&self, _worker_id: &str) -> crate::error::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn create_test_task() -> InferenceTask {
+        InferenceTask {
+            id: Uuid::new_v4(),
+            model_id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            api_key_id: Uuid::new_v4(),
+            status: TaskStatus::Pending,
+            inputs: serde_json::json!({"input": [1.0, 2.0, 3.0]}),
+            outputs: None,
+            error_message: None,
+            priority: 5,
+            retry_count: 0,
+            created_at: chrono::Utc::now(),
+            started_at: None,
+            completed_at: None,
+        }
+    }
+
+    fn create_test_model() -> ModelInfo {
+        ModelInfo {
+            id: Uuid::new_v4(),
+            name: "test-model".to_string(),
+            version: "1.0".to_string(),
+            file_path: "/path/to/model.onnx".to_string(),
+            file_size: Some(1024),
+            storage_backend: "local".to_string(),
+            input_shapes: None,
+            output_shapes: None,
+            metadata: None,
+            is_valid: true,
+            validation_error: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_task_message_task_id() {
+        let task_id = Uuid::new_v4();
+        let mut data = HashMap::new();
+        data.insert("task_id".to_string(), task_id.to_string());
+        
+        let task_message = TaskMessage {
+            stream: "test-stream".to_string(),
+            entry_id: "test-entry".to_string(),
+            data,
+        };
+        
+        assert_eq!(task_message.task_id().unwrap(), task_id);
+    }
+
+    #[tokio::test]
+    async fn test_task_message_missing_task_id() {
+        let task_message = TaskMessage {
+            stream: "test-stream".to_string(),
+            entry_id: "test-entry".to_string(),
+            data: HashMap::new(),
+        };
+        
+        assert!(task_message.task_id().is_err());
+    }
+
+    #[test]
+    fn test_processor_new() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let config = ferrinx_common::DatabaseConfig {
+                backend: ferrinx_common::DatabaseBackend::Sqlite,
+                url: ":memory:".to_string(),
+                max_connections: 1,
+                run_migrations: true,
+            };
+            let db = Arc::new(DbContext::new(&config).await.unwrap());
+            let redis = Arc::new(MockRedis::new());
+            let onnx_config = ferrinx_common::OnnxConfig {
+                cache_size: 3,
+                preload: vec![],
+                execution_provider: ferrinx_common::ExecutionProvider::CPU,
+                gpu_device_id: 0,
+            };
+            let engine = Arc::new(InferenceEngine::new(&onnx_config).unwrap());
+            
+            let processor = TaskProcessor::new(db, redis, engine, 3, 1000);
+            assert_eq!(processor.max_retries, 3);
+            assert_eq!(processor.retry_base_delay_ms, 1000);
+        });
+    }
+}

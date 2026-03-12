@@ -115,3 +115,73 @@ impl ModelLoader {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::LocalStorage;
+    use std::io::Write;
+
+    fn create_test_storage() -> Arc<dyn ModelStorage> {
+        Arc::new(LocalStorage::new("./test_models").unwrap())
+    }
+
+    #[test]
+    fn test_check_onnx_magic_valid_first_byte() {
+        let loader = ModelLoader::new(create_test_storage());
+        let data = vec![0x08, 0x00, 0x00, 0x00];
+        assert!(loader.check_onnx_magic(&data).is_ok());
+    }
+
+    #[test]
+    fn test_check_onnx_magic_valid_second_byte() {
+        let loader = ModelLoader::new(create_test_storage());
+        let data = vec![0x0a, 0x00, 0x00, 0x00];
+        assert!(loader.check_onnx_magic(&data).is_ok());
+    }
+
+    #[test]
+    fn test_check_onnx_magic_too_small() {
+        let loader = ModelLoader::new(create_test_storage());
+        let data = vec![0x08, 0x00];
+        assert!(loader.check_onnx_magic(&data).is_err());
+    }
+
+    #[test]
+    fn test_check_onnx_magic_invalid() {
+        let loader = ModelLoader::new(create_test_storage());
+        let data = vec![0x00, 0x00, 0x00, 0x00];
+        assert!(loader.check_onnx_magic(&data).is_err());
+    }
+
+    #[test]
+    fn test_check_onnx_magic_empty() {
+        let loader = ModelLoader::new(create_test_storage());
+        let data = vec![];
+        assert!(loader.check_onnx_magic(&data).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_model_too_small() {
+        let loader = ModelLoader::new(create_test_storage());
+        let data = vec![0x00];
+        let result = loader.validate_model(&data).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_model_invalid_header() {
+        let loader = ModelLoader::new(create_test_storage());
+        let data = vec![0x00, 0x00, 0x00, 0x00, 0x00];
+        let result = loader.validate_model(&data).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_executable_timeout() {
+        let loader = ModelLoader::new(create_test_storage());
+        let data = vec![0x08, 0x00, 0x00, 0x00, 0x00];
+        let result = loader.validate_executable(&data, Duration::from_millis(1)).await;
+        assert!(result.is_err());
+    }
+}

@@ -504,4 +504,214 @@ mod tests {
         assert_eq!(obj.get("label").unwrap().as_str().unwrap(), "dog");
         assert_eq!(obj.get("class_index").unwrap().as_u64().unwrap(), 1);
     }
+
+    #[test]
+    fn test_postprocess_sigmoid() {
+        let pipeline = PostprocessPipeline::new(vec![PostprocessOp::Sigmoid], None);
+        let tensor = arr1(&[0.0, 1.0, -1.0]).into_dyn();
+        let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
+
+        let values: Vec<f32> = serde_json::from_value(result).unwrap();
+        assert!((values[0] - 0.5).abs() < 1e-6);
+        assert!(values[1] > 0.5);
+        assert!(values[2] < 0.5);
+    }
+
+    #[test]
+    fn test_postprocess_threshold() {
+        let pipeline =
+            PostprocessPipeline::new(vec![PostprocessOp::Threshold { value: 0.5 }], None);
+        let tensor = arr1(&[0.3, 0.7, 0.5, 0.2]).into_dyn();
+        let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
+
+        let values: Vec<f32> = serde_json::from_value(result).unwrap();
+        assert_eq!(values[0], 0.0);
+        assert_eq!(values[1], 0.7);
+        assert_eq!(values[2], 0.5);
+        assert_eq!(values[3], 0.0);
+    }
+
+    #[test]
+    fn test_postprocess_slice() {
+        let pipeline =
+            PostprocessPipeline::new(vec![PostprocessOp::Slice { start: 1, end: 3 }], None);
+        let tensor = arr1(&[1.0, 2.0, 3.0, 4.0, 5.0]).into_dyn();
+        let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
+
+        let values: Vec<f32> = serde_json::from_value(result).unwrap();
+        assert_eq!(values, vec![2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_postprocess_slice_to_end() {
+        let pipeline =
+            PostprocessPipeline::new(vec![PostprocessOp::Slice { start: 2, end: 0 }], None);
+        let tensor = arr1(&[1.0, 2.0, 3.0, 4.0]).into_dyn();
+        let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
+
+        let values: Vec<f32> = serde_json::from_value(result).unwrap();
+        assert_eq!(values, vec![3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_preprocess_normalize() {
+        let pipeline = PreprocessPipeline::new(vec![PreprocessOp::Normalize {
+            mean: vec![0.5, 0.5, 0.5],
+            std: vec![0.5, 0.5, 0.5],
+        }]);
+
+        let tensor = ArrayD::from_shape_vec(IxDyn(&[3]), vec![1.0, 0.0, -1.0]).unwrap();
+        let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
+
+        match result {
+            TransformData::TensorF32(t) => {
+                let normalized: Vec<f32> = t.iter().cloned().collect();
+                assert!((normalized[0] - 1.0).abs() < 1e-6);
+                assert!((normalized[1] - (-1.0)).abs() < 1e-6);
+                assert!((normalized[2] - (-3.0)).abs() < 1e-6);
+            }
+            _ => panic!("Expected tensor"),
+        }
+    }
+
+    #[test]
+    fn test_preprocess_squeeze() {
+        let pipeline = PreprocessPipeline::new(vec![PreprocessOp::Squeeze { axes: vec![0, 2] }]);
+
+        let tensor =
+            ArrayD::from_shape_vec(IxDyn(&[1, 3, 1, 2]), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+                .unwrap();
+        let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
+
+        match result {
+            TransformData::TensorF32(t) => {
+                assert_eq!(t.shape(), &[3, 2]);
+            }
+            _ => panic!("Expected tensor"),
+        }
+    }
+
+    #[test]
+    fn test_preprocess_unsqueeze() {
+        let pipeline = PreprocessPipeline::new(vec![PreprocessOp::Unsqueeze { axes: vec![0, 2] }]);
+
+        let tensor =
+            ArrayD::from_shape_vec(IxDyn(&[3, 2]), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+        let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
+
+        match result {
+            TransformData::TensorF32(t) => {
+                assert_eq!(t.shape(), &[1, 3, 1, 2]);
+            }
+            _ => panic!("Expected tensor"),
+        }
+    }
+
+    #[test]
+    fn test_preprocess_transpose() {
+        let pipeline = PreprocessPipeline::new(vec![PreprocessOp::Transpose { axes: vec![1, 0] }]);
+
+        let tensor =
+            ArrayD::from_shape_vec(IxDyn(&[2, 3]), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+        let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
+
+        match result {
+            TransformData::TensorF32(t) => {
+                assert_eq!(t.shape(), &[3, 2]);
+            }
+            _ => panic!("Expected tensor"),
+        }
+    }
+
+    #[test]
+    fn test_preprocess_reshape() {
+        let pipeline = PreprocessPipeline::new(vec![PreprocessOp::Reshape { shape: vec![2, 3] }]);
+
+        let tensor =
+            ArrayD::from_shape_vec(IxDyn(&[6]), vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]).unwrap();
+        let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
+
+        match result {
+            TransformData::TensorF32(t) => {
+                assert_eq!(t.shape(), &[2, 3]);
+            }
+            _ => panic!("Expected tensor"),
+        }
+    }
+
+    #[test]
+    fn test_transform_data_into_image() {
+        let img = image::DynamicImage::new_rgb8(10, 10);
+        let data = TransformData::Image(img);
+        let result = data.into_image();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_transform_data_into_tensor_f32() {
+        let tensor = ArrayD::from_shape_vec(IxDyn(&[3]), vec![1.0, 2.0, 3.0]).unwrap();
+        let data = TransformData::TensorF32(tensor);
+        let result = data.into_tensor_f32();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_transform_data_into_tensor_f32_wrong_type() {
+        let img = image::DynamicImage::new_rgb8(10, 10);
+        let data = TransformData::Image(img);
+        let result = data.into_tensor_f32();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_transform_data_to_json_tensor_f32() {
+        let tensor = ArrayD::from_shape_vec(IxDyn(&[3]), vec![1.0, 2.0, 3.0]).unwrap();
+        let data = TransformData::TensorF32(tensor);
+        let result = data.to_json().unwrap();
+        let values: Vec<f32> = serde_json::from_value(result).unwrap();
+        assert_eq!(values, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_transform_data_to_json_tensor_i64() {
+        let tensor = ArrayD::from_shape_vec(IxDyn(&[3]), vec![1i64, 2, 3]).unwrap();
+        let data = TransformData::TensorI64(tensor);
+        let result = data.to_json().unwrap();
+        let values: Vec<i64> = serde_json::from_value(result).unwrap();
+        assert_eq!(values, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_transform_data_to_json_image_error() {
+        let img = image::DynamicImage::new_rgb8(10, 10);
+        let data = TransformData::Image(img);
+        let result = data.to_json();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_preprocess_grayscale() {
+        let pipeline = PreprocessPipeline::new(vec![PreprocessOp::Grayscale]);
+        let img = image::DynamicImage::new_rgb8(10, 10);
+        let result = pipeline.run(TransformData::Image(img)).unwrap();
+
+        match result {
+            TransformData::Image(gray_img) => {
+                assert!(gray_img.as_luma8().is_some());
+            }
+            _ => panic!("Expected image"),
+        }
+    }
+
+    #[test]
+    fn test_postprocess_argmax_without_prob() {
+        let pipeline =
+            PostprocessPipeline::new(vec![PostprocessOp::Argmax { keep_prob: false }], None);
+
+        let tensor = arr1(&[0.1, 0.9, 0.3]).into_dyn();
+        let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
+
+        let idx = result.get("Index").unwrap().as_u64().unwrap();
+        assert_eq!(idx, 1);
+    }
 }

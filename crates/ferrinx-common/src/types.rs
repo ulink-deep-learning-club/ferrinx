@@ -353,3 +353,328 @@ pub struct ModelMetadata {
     pub opset_version: Option<i64>,
     pub producer_name: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+
+    #[test]
+    fn test_model_state_as_str() {
+        assert_eq!(ModelState::Cached.as_str(), "cached");
+        assert_eq!(ModelState::Available.as_str(), "available");
+    }
+
+    #[test]
+    fn test_model_state_from_str() {
+        assert_eq!(ModelState::from_str("cached"), Some(ModelState::Cached));
+        assert_eq!(
+            ModelState::from_str("available"),
+            Some(ModelState::Available)
+        );
+        assert_eq!(ModelState::from_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_model_state_priority_score() {
+        assert_eq!(ModelState::Cached.priority_score(), 0);
+        assert_eq!(ModelState::Available.priority_score(), 1);
+    }
+
+    #[test]
+    fn test_permissions_user_default() {
+        let perms = Permissions::user_default();
+        assert!(perms.can_read_models());
+        assert!(!perms.can_write_models());
+        assert!(!perms.can_delete_models());
+        assert!(perms.can_execute_inference());
+        assert!(!perms.admin);
+    }
+
+    #[test]
+    fn test_permissions_admin_default() {
+        let perms = Permissions::admin_default();
+        assert!(perms.can_read_models());
+        assert!(perms.can_write_models());
+        assert!(perms.can_delete_models());
+        assert!(perms.can_execute_inference());
+        assert!(perms.admin);
+    }
+
+    #[test]
+    fn test_permissions_can_methods_with_admin() {
+        let mut perms = Permissions::default();
+        perms.admin = true;
+        assert!(perms.can_read_models());
+        assert!(perms.can_write_models());
+        assert!(perms.can_delete_models());
+        assert!(perms.can_execute_inference());
+    }
+
+    #[test]
+    fn test_permissions_can_methods_without_admin() {
+        let mut perms = Permissions::default();
+        perms.models = vec!["read".to_string()];
+        perms.inference = vec!["execute".to_string()];
+        assert!(perms.can_read_models());
+        assert!(!perms.can_write_models());
+        assert!(!perms.can_delete_models());
+        assert!(perms.can_execute_inference());
+    }
+
+    #[test]
+    fn test_api_key_record_is_expired_no_expiry() {
+        let key = ApiKeyRecord {
+            id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            key_hash: "hash".to_string(),
+            name: "test".to_string(),
+            permissions: Permissions::default(),
+            is_active: true,
+            is_temporary: false,
+            last_used_at: None,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        assert!(!key.is_expired());
+    }
+
+    #[test]
+    fn test_api_key_record_is_expired_future() {
+        let key = ApiKeyRecord {
+            id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            key_hash: "hash".to_string(),
+            name: "test".to_string(),
+            permissions: Permissions::default(),
+            is_active: true,
+            is_temporary: false,
+            last_used_at: None,
+            expires_at: Some(Utc::now() + Duration::hours(1)),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        assert!(!key.is_expired());
+    }
+
+    #[test]
+    fn test_api_key_record_is_expired_past() {
+        let key = ApiKeyRecord {
+            id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            key_hash: "hash".to_string(),
+            name: "test".to_string(),
+            permissions: Permissions::default(),
+            is_active: true,
+            is_temporary: false,
+            last_used_at: None,
+            expires_at: Some(Utc::now() - Duration::hours(1)),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        assert!(key.is_expired());
+    }
+
+    #[test]
+    fn test_api_key_record_is_valid() {
+        let mut key = ApiKeyRecord {
+            id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            key_hash: "hash".to_string(),
+            name: "test".to_string(),
+            permissions: Permissions::default(),
+            is_active: true,
+            is_temporary: false,
+            last_used_at: None,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        assert!(key.is_valid());
+
+        key.is_active = false;
+        assert!(!key.is_valid());
+
+        key.is_active = true;
+        key.expires_at = Some(Utc::now() - Duration::hours(1));
+        assert!(!key.is_valid());
+    }
+
+    #[test]
+    fn test_task_status_as_str() {
+        assert_eq!(TaskStatus::Pending.as_str(), "pending");
+        assert_eq!(TaskStatus::Running.as_str(), "running");
+        assert_eq!(TaskStatus::Completed.as_str(), "completed");
+        assert_eq!(TaskStatus::Failed.as_str(), "failed");
+        assert_eq!(TaskStatus::Cancelled.as_str(), "cancelled");
+    }
+
+    #[test]
+    fn test_task_status_from_str() {
+        assert_eq!(TaskStatus::from_str("pending"), Some(TaskStatus::Pending));
+        assert_eq!(TaskStatus::from_str("running"), Some(TaskStatus::Running));
+        assert_eq!(
+            TaskStatus::from_str("completed"),
+            Some(TaskStatus::Completed)
+        );
+        assert_eq!(TaskStatus::from_str("failed"), Some(TaskStatus::Failed));
+        assert_eq!(
+            TaskStatus::from_str("cancelled"),
+            Some(TaskStatus::Cancelled)
+        );
+        assert_eq!(TaskStatus::from_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_task_status_is_terminal() {
+        assert!(!TaskStatus::Pending.is_terminal());
+        assert!(!TaskStatus::Running.is_terminal());
+        assert!(TaskStatus::Completed.is_terminal());
+        assert!(TaskStatus::Failed.is_terminal());
+        assert!(TaskStatus::Cancelled.is_terminal());
+    }
+
+    #[test]
+    fn test_task_priority_as_i32() {
+        assert_eq!(TaskPriority::Low.as_i32(), 1);
+        assert_eq!(TaskPriority::Normal.as_i32(), 5);
+        assert_eq!(TaskPriority::High.as_i32(), 10);
+    }
+
+    #[test]
+    fn test_task_priority_from_i32() {
+        assert_eq!(TaskPriority::from_i32(1), TaskPriority::Low);
+        assert_eq!(TaskPriority::from_i32(2), TaskPriority::Low);
+        assert_eq!(TaskPriority::from_i32(3), TaskPriority::Low);
+        assert_eq!(TaskPriority::from_i32(4), TaskPriority::Normal);
+        assert_eq!(TaskPriority::from_i32(5), TaskPriority::Normal);
+        assert_eq!(TaskPriority::from_i32(7), TaskPriority::Normal);
+        assert_eq!(TaskPriority::from_i32(8), TaskPriority::High);
+        assert_eq!(TaskPriority::from_i32(10), TaskPriority::High);
+        assert_eq!(TaskPriority::from_i32(100), TaskPriority::High);
+    }
+
+    #[test]
+    fn test_task_priority_default() {
+        assert_eq!(TaskPriority::default(), TaskPriority::Normal);
+    }
+
+    #[test]
+    fn test_inference_task_priority_enum() {
+        let mut task = InferenceTask {
+            id: Uuid::nil(),
+            model_id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            api_key_id: Uuid::nil(),
+            status: TaskStatus::Pending,
+            inputs: serde_json::json!({}),
+            outputs: None,
+            error_message: None,
+            priority: 5,
+            retry_count: 0,
+            created_at: Utc::now(),
+            started_at: None,
+            completed_at: None,
+        };
+        assert_eq!(task.priority_enum(), TaskPriority::Normal);
+
+        task.priority = 1;
+        assert_eq!(task.priority_enum(), TaskPriority::Low);
+
+        task.priority = 10;
+        assert_eq!(task.priority_enum(), TaskPriority::High);
+    }
+
+    #[test]
+    fn test_inference_task_latency_ms() {
+        let mut task = InferenceTask {
+            id: Uuid::nil(),
+            model_id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            api_key_id: Uuid::nil(),
+            status: TaskStatus::Pending,
+            inputs: serde_json::json!({}),
+            outputs: None,
+            error_message: None,
+            priority: 5,
+            retry_count: 0,
+            created_at: Utc::now(),
+            started_at: None,
+            completed_at: None,
+        };
+        assert!(task.latency_ms().is_none());
+
+        task.started_at = Some(Utc::now());
+        assert!(task.latency_ms().is_none());
+
+        task.completed_at = Some(Utc::now() + Duration::milliseconds(100));
+        let latency = task.latency_ms().unwrap();
+        assert!(latency >= 100 && latency <= 110);
+    }
+
+    #[test]
+    fn test_api_key_info_from_record() {
+        let record = ApiKeyRecord {
+            id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            key_hash: "hash".to_string(),
+            name: "test".to_string(),
+            permissions: Permissions::user_default(),
+            is_active: true,
+            is_temporary: false,
+            last_used_at: None,
+            expires_at: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        let info: ApiKeyInfo = record.into();
+        assert_eq!(info.id, Uuid::nil());
+        assert_eq!(info.user_id, Uuid::nil());
+        assert_eq!(info.name, "test");
+        assert!(info.is_active);
+        assert!(!info.is_temporary);
+    }
+
+    #[test]
+    fn test_api_key_info_is_valid() {
+        let mut info = ApiKeyInfo {
+            id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            name: "test".to_string(),
+            permissions: Permissions::default(),
+            is_active: true,
+            is_temporary: false,
+            expires_at: None,
+        };
+        assert!(info.is_valid());
+
+        info.is_active = false;
+        assert!(!info.is_valid());
+
+        info.is_active = true;
+        info.expires_at = Some(Utc::now() - Duration::hours(1));
+        assert!(!info.is_valid());
+    }
+
+    #[test]
+    fn test_model_info_unique_key() {
+        let model = ModelInfo {
+            id: Uuid::nil(),
+            name: "resnet".to_string(),
+            version: "1.0".to_string(),
+            file_path: "/path/to/model.onnx".to_string(),
+            file_size: Some(1024),
+            storage_backend: "local".to_string(),
+            input_shapes: None,
+            output_shapes: None,
+            metadata: None,
+            is_valid: true,
+            validation_error: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        assert_eq!(model.unique_key(), "resnet:1.0");
+    }
+}
