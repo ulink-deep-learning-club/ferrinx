@@ -272,7 +272,7 @@ path = "./models"
 
 [onnx]
 cache_size = 5
-execution_provider = "CPU"
+execution_provider = "CPU"  # Options: CPU, CUDA, TensorRT, CoreML, ROCm
 ```
 
 ## Example: Synchronous Inference
@@ -381,35 +381,69 @@ For high-availability and scaling:
 
 Apache-2.0
 
-## Incomplete Features
+## Implementation Status
 
-The following features are planned but not yet fully implemented. Contributions welcome!
-
-### High Priority
+### ✅ Completed Features
 
 | Feature | Location | Description |
 |---------|----------|-------------|
-| GPU Execution Providers | `ferrinx-core/src/inference/engine.rs` | CUDA and TensorRT execution providers are defined but not configured. |
-| NMS Postprocessing | `ferrinx-core/src/transform/pipeline.rs:298` | Non-Maximum Suppression for object detection models returns unsupported error. |
+| **Model Configuration System** | `ferrinx-core/src/model/config.rs` | TOML-based model configuration with preprocessing/postprocessing pipelines |
+| **Preprocessing Pipelines** | `ferrinx-core/src/transform/pipeline.rs` | Full preprocessing operations: resize, grayscale, normalize, to_tensor, transpose, squeeze, unsqueeze, reshape, center_crop, pad |
+| **Postprocessing Pipelines** | `ferrinx-core/src/transform/pipeline.rs` | Most postprocessing operations: softmax, sigmoid, argmax, top_k, threshold, slice, map_labels |
+| **Model Routing** | `ferrinx-common/src/redis.rs` + `ferrinx-worker/src/model_reporter.rs` | Worker model status reporting and intelligent task routing (cached → available → error) |
+| **Synchronous Inference** | `ferrinx-api/src/handlers/inference.rs` | Low-latency in-process inference with LRU cache and semaphore-based concurrency control |
+| **Asynchronous Inference** | `ferrinx-api/src/handlers/inference.rs` + `ferrinx-worker/` | Redis Streams-based task queue with worker pool |
+| **API Key Authentication** | `ferrinx-api/src/middleware/auth.rs` | Redis cache with database fallback |
+| **Rate Limiting** | `ferrinx-api/src/middleware/rate_limit.rs` | Sliding window and token bucket algorithms |
+| **Bootstrap Endpoint** | `ferrinx-api/src/handlers/auth.rs` | Initial admin user creation |
+| **Model Upload/Validation** | `ferrinx-api/src/handlers/model.rs` + `ferrinx-core/src/model/loader.rs` | ONNX model upload with validation (magic number check, graph parsing) |
+| **Database Abstraction** | `ferrinx-db/` | Repository pattern with SQLite implementation (PostgreSQL pending) |
+| **CLI Client** | `ferrinx-cli/` | Full command-line interface for all operations |
+| **Worker Pool** | `ferrinx-worker/` | Independent worker processes with Redis Streams consumption |
+| **Graceful Shutdown** | `ferrinx-api/src/main.rs` + `ferrinx-worker/src/main.rs` | Clean shutdown with cancellation tokens |
 
-### Medium Priority
+### 🟡 Partially Implemented
+
+| Feature | Location | Description | Missing Parts |
+|---------|----------|-------------|---------------|
+| **Prometheus Metrics** | `ferrinx-api/src/handlers/mod.rs:36` | Basic metrics endpoint returning cache/concurrency status | Full Prometheus metrics: request counters, latency histograms, cache hit/miss counters |
+| **Transaction Support** | `ferrinx-db/src/context.rs` | Basic transaction begin/commit | Transaction methods (`save_tx`, `delete_tx`, `delete_by_user_tx`) not implemented in repositories |
+| **Database Backends** | `ferrinx-db/` | SQLite fully implemented | PostgreSQL implementation pending |
+| **GPU Execution Providers** | `ferrinx-core/src/inference/engine.rs` | CPU, CUDA, TensorRT, CoreML, ROCm all implemented | Only CoreML tested (on macOS); CUDA/TensorRT/ROCm need Linux/Windows + GPU hardware |
+| **Postprocessing Operations** | `ferrinx-core/src/transform/pipeline.rs` | Most operations complete | NMS (Non-Maximum Suppression) returns unsupported error |
+
+### ❌ Not Started
+
+#### High Priority
 
 | Feature | Location | Description |
 |---------|----------|-------------|
-| Prometheus Metrics | `ferrinx-api/src/handlers/mod.rs:36` | `/api/v1/metrics` endpoint is a stub. Full metrics defined in design docs. |
-| Model Metadata Extraction | `ferrinx-core/src/model/loader.rs:93` | `opset_version` and `producer_name` always return `None`. |
-| Dynamic Batching | Not implemented | `DynamicBatcher` for batching requests described in design docs. |
-| `update_retry_count` | `ferrinx-db/src/traits.rs` | DB repository method mentioned in design but not in trait. |
+| **NMS Postprocessing** | `ferrinx-core/src/transform/pipeline.rs:298` | Non-Maximum Suppression for object detection models - returns "not yet implemented" error |
 
-### Low Priority
+#### Medium Priority
 
 | Feature | Location | Description |
 |---------|----------|-------------|
-| Lua Scripting | Not implemented | Custom pre/post-processing via Lua scripts. |
-| Model Optimizer | Not implemented | Quantization (INT8), graph optimization. |
-| Version Aliases | Not implemented | Model version aliasing (e.g., `production` tag). |
-| OpenTelemetry | Not implemented | Distributed tracing with Jaeger/Zipkin/OTLP. |
-| Letterbox Preprocessing | Not implemented | Aspect-ratio preserving resize for images. |
+| **Model Metadata Extraction** | `ferrinx-core/src/model/loader.rs:93` | `opset_version` and `producer_name` always return `None` - need to extract from ONNX model |
+| **Dynamic Batching** | Not implemented | `DynamicBatcher` for automatic request batching to improve throughput |
+| **Database Transaction Methods** | `ferrinx-db/src/traits.rs` | Transaction-specific repository methods (`save_tx`, `delete_tx`, `delete_by_user_tx`) not defined in traits |
+| **Batch Operations** | `ferrinx-db/` | Batch cleanup methods, batch delete/update for efficiency |
+| **Query Optimization** | `ferrinx-db/` | Covered queries, connection pool metrics, prepared statement caching |
+| **PostgreSQL Backend** | `ferrinx-db/src/backends/` | PostgreSQL-specific repository implementations |
+
+#### Low Priority
+
+| Feature | Location | Description |
+|---------|----------|-------------|
+| **Lua Scripting** | Not implemented | Custom pre/post-processing via Lua scripts for complex transformations |
+| **Model Optimizer** | Not implemented | Quantization (INT8), graph optimization, model compression |
+| **Version Aliases** | Not implemented | Model version aliasing (e.g., `production` tag pointing to specific version) |
+| **OpenTelemetry** | Not implemented | Distributed tracing with Jaeger/Zipkin/OTLP export |
+| **Letterbox Preprocessing** | Not implemented | Aspect-ratio preserving resize with padding for images |
+| **Input Preprocessing Cache** | Not implemented | Cache for preprocessed inputs to avoid redundant transformations |
+| **Model Warmup** | Not implemented | Preload popular models on startup with configurable warmup strategy |
+| **Configuration Hot Reload** | Not implemented | Runtime configuration updates without restart |
+| **Audit Logging** | Not implemented | Detailed audit trail for all operations |
 
 ## Documentation
 

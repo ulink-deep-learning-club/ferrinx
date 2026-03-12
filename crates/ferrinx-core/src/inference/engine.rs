@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::error::{CoreError, Result};
-use ferrinx_common::{InferenceInput, InferenceOutput, OnnxConfig};
+use ferrinx_common::{ExecutionProvider, InferenceInput, InferenceOutput, OnnxConfig};
 
 pub type CacheEvictCallback = Arc<dyn Fn(Uuid) + Send + Sync>;
 pub type CacheLoadCallback = Arc<dyn Fn(Uuid) + Send + Sync>;
@@ -30,6 +30,8 @@ pub struct InferenceEngine {
     max_cache_size: usize,
     on_evict: Option<CacheEvictCallback>,
     on_load: Option<CacheLoadCallback>,
+    execution_provider: ExecutionProvider,
+    gpu_device_id: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +60,8 @@ impl InferenceEngine {
             max_cache_size: config.cache_size,
             on_evict: None,
             on_load: None,
+            execution_provider: config.execution_provider.clone(),
+            gpu_device_id: config.gpu_device_id,
         })
     }
 
@@ -90,6 +94,8 @@ impl InferenceEngine {
         let state = self.state.clone();
         let on_evict = self.on_evict.clone();
         let on_load = self.on_load.clone();
+        let execution_provider = self.execution_provider.clone();
+        let gpu_device_id = self.gpu_device_id;
 
         let outputs = tokio::time::timeout(self.timeout, async move {
             let session = Self::get_or_load_session(
@@ -98,6 +104,8 @@ impl InferenceEngine {
                 model_path,
                 on_evict,
                 on_load,
+                execution_provider,
+                gpu_device_id,
             ).await?;
 
             let input_tensors = prepare_inputs(&session, &inputs).await?;
@@ -162,12 +170,86 @@ impl InferenceEngine {
 
         let model_path = model_path.to_string();
         let on_load = self.on_load.clone();
+        let execution_provider = self.execution_provider.clone();
+        let gpu_device_id = self.gpu_device_id;
         
         drop(state_guard);
         
         let load_result = tokio::task::spawn_blocking(move || {
-            Session::builder()
-                .and_then(|mut b| b.commit_from_file(&model_path))
+            let builder = Session::builder()
+                .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?;
+
+            let mut builder = match execution_provider {
+                ExecutionProvider::CPU => builder,
+                ExecutionProvider::CUDA => {
+                    #[cfg(any(target_os = "linux", target_os = "windows"))]
+                    {
+                        builder
+                            .with_execution_providers([
+                                ort::ep::CUDA::default()
+                                    .with_device_id(gpu_device_id)
+                                    .build()
+                            ])
+                            .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
+                    }
+                    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+                    {
+                        let _ = gpu_device_id;
+                        builder
+                    }
+                }
+                ExecutionProvider::TensorRT => {
+                    #[cfg(any(target_os = "linux", target_os = "windows"))]
+                    {
+                        builder
+                            .with_execution_providers([
+                                ort::ep::TensorRT::default()
+                                    .with_device_id(gpu_device_id)
+                                    .build()
+                            ])
+                            .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
+                    }
+                    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+                    {
+                        let _ = gpu_device_id;
+                        builder
+                    }
+                }
+                ExecutionProvider::CoreML => {
+                    #[cfg(target_os = "macos")]
+                    {
+                        builder
+                            .with_execution_providers([
+                                ort::ep::CoreML::default().build()
+                            ])
+                            .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
+                    }
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        builder
+                    }
+                }
+                ExecutionProvider::ROCm => {
+                    #[cfg(target_os = "linux")]
+                    {
+                        builder
+                            .with_execution_providers([
+                                ort::ep::ROCm::default()
+                                    .with_device_id(gpu_device_id)
+                                    .build()
+                            ])
+                            .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
+                    }
+                    #[cfg(not(target_os = "linux"))]
+                    {
+                        let _ = gpu_device_id;
+                        builder
+                    }
+                }
+            };
+
+            builder
+                .commit_from_file(&model_path)
                 .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))
         })
         .await
@@ -231,6 +313,8 @@ impl InferenceEngine {
         model_path: String,
         on_evict: Option<CacheEvictCallback>,
         on_load: Option<CacheLoadCallback>,
+        execution_provider: ExecutionProvider,
+        gpu_device_id: u32,
     ) -> Result<CachedSession> {
         loop {
             let mut state_guard = state.lock().await;
@@ -264,8 +348,80 @@ impl InferenceEngine {
             drop(state_guard);
             
             let load_result = tokio::task::spawn_blocking(move || {
-                Session::builder()
-                    .and_then(|mut b| b.commit_from_file(&model_path))
+                let builder = Session::builder()
+                    .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?;
+
+                let mut builder = match execution_provider {
+                    ExecutionProvider::CPU => builder,
+                    ExecutionProvider::CUDA => {
+                        #[cfg(any(target_os = "linux", target_os = "windows"))]
+                        {
+                            builder
+                                .with_execution_providers([
+                                    ort::ep::CUDA::default()
+                                        .with_device_id(gpu_device_id)
+                                        .build()
+                                ])
+                                .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
+                        }
+                        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+                        {
+                            let _ = gpu_device_id;
+                            builder
+                        }
+                    }
+                    ExecutionProvider::TensorRT => {
+                        #[cfg(any(target_os = "linux", target_os = "windows"))]
+                        {
+                            builder
+                                .with_execution_providers([
+                                    ort::ep::TensorRT::default()
+                                        .with_device_id(gpu_device_id)
+                                        .build()
+                                ])
+                                .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
+                        }
+                        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+                        {
+                            let _ = gpu_device_id;
+                            builder
+                        }
+                    }
+                    ExecutionProvider::CoreML => {
+                        #[cfg(target_os = "macos")]
+                        {
+                            builder
+                                .with_execution_providers([
+                                    ort::ep::CoreML::default().build()
+                                ])
+                                .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
+                        }
+                        #[cfg(not(target_os = "macos"))]
+                        {
+                            builder
+                        }
+                    }
+                    ExecutionProvider::ROCm => {
+                        #[cfg(target_os = "linux")]
+                        {
+                            builder
+                                .with_execution_providers([
+                                    ort::ep::ROCm::default()
+                                        .with_device_id(gpu_device_id)
+                                        .build()
+                                ])
+                                .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
+                        }
+                        #[cfg(not(target_os = "linux"))]
+                        {
+                            let _ = gpu_device_id;
+                            builder
+                        }
+                    }
+                };
+
+                builder
+                    .commit_from_file(&model_path)
                     .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))
             })
             .await

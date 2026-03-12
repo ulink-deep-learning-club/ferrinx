@@ -116,6 +116,8 @@ pub enum ExecutionProvider {
     CPU,
     CUDA,
     TensorRT,
+    CoreML,
+    ROCm,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -310,5 +312,128 @@ impl Config {
         } else {
             Err(errors)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_dev_config() {
+        let config = Config::default_dev();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_valid_config() {
+        let config = Config::default_dev();
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_port_zero() {
+        let mut config = Config::default_dev();
+        config.server.port = 0;
+        let errors = config.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("port")));
+    }
+
+    #[test]
+    fn test_validate_zero_concurrency() {
+        let mut config = Config::default_dev();
+        config.server.sync_inference_concurrency = 0;
+        let errors = config.validate().unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.contains("sync_inference_concurrency")));
+    }
+
+    #[test]
+    fn test_validate_zero_db_connections() {
+        let mut config = Config::default_dev();
+        config.database.max_connections = 0;
+        let errors = config.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("max_connections")));
+    }
+
+    #[test]
+    fn test_validate_zero_cache_size() {
+        let mut config = Config::default_dev();
+        config.onnx.cache_size = 0;
+        let errors = config.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("cache_size")));
+    }
+
+    #[test]
+    fn test_validate_multiple_errors() {
+        let mut config = Config::default_dev();
+        config.server.port = 0;
+        config.onnx.cache_size = 0;
+        let errors = config.validate().unwrap_err();
+        assert_eq!(errors.len(), 2);
+    }
+
+    #[test]
+    fn test_execution_provider_cpu() {
+        let config = Config::default_dev();
+        assert!(matches!(
+            config.onnx.execution_provider,
+            ExecutionProvider::CPU
+        ));
+    }
+
+    #[test]
+    fn test_database_backend_sqlite() {
+        let config = Config::default_dev();
+        assert!(matches!(config.database.backend, DatabaseBackend::Sqlite));
+    }
+
+    #[test]
+    fn test_storage_backend_local() {
+        let config = Config::default_dev();
+        assert!(matches!(config.storage.backend, StorageBackend::Local));
+    }
+
+    #[test]
+    fn test_rate_limit_algorithm_default() {
+        let config = Config::default_dev();
+        assert!(matches!(
+            config.rate_limit.algorithm,
+            RateLimitAlgorithm::SlidingWindow
+        ));
+    }
+
+    #[test]
+    fn test_log_format_default() {
+        let config = Config::default_dev();
+        assert!(matches!(config.logging.format, LogFormat::Text));
+    }
+
+    #[test]
+    fn test_worker_config_defaults() {
+        let config = Config::default_dev();
+        assert_eq!(config.worker.max_retries, 3);
+        assert_eq!(config.worker.task_recovery_interval_secs, 300);
+        assert_eq!(config.worker.health_check_interval_secs, 30);
+        assert_eq!(config.worker.claim_idle_ms, 300_000);
+    }
+
+    #[test]
+    fn test_cleanup_config() {
+        let config = Config::default_dev();
+        assert!(config.cleanup.enabled);
+        assert_eq!(config.cleanup.completed_task_retention_days, 30);
+        assert_eq!(config.cleanup.failed_task_retention_days, 7);
+        assert_eq!(config.cleanup.cancelled_task_retention_days, 3);
+    }
+
+    #[test]
+    fn test_model_validation_config() {
+        let config = Config::default_dev();
+        assert!(config.model_validation.enabled);
+        assert!(!config.model_validation.validate_session);
+        assert_eq!(config.model_validation.validation_timeout_secs, 30);
+        assert!(config.model_validation.async_validation);
     }
 }
