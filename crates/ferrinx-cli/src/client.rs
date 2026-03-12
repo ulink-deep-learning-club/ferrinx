@@ -148,6 +148,33 @@ impl HttpClient {
         })
     }
 
+    pub async fn put<T: DeserializeOwned, B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T> {
+        let url = format!("{}{}", self.base_url, path);
+
+        let mut request = self.client.put(&url).json(body);
+
+        if let Some(ref api_key) = self.api_key {
+            request = request.bearer_auth(api_key);
+        }
+
+        let response = request.send().await?;
+
+        if !response.status().is_success() {
+            return Err(self.handle_error_response(response).await);
+        }
+
+        let body: ApiResponse<T> = response.json().await?;
+
+        body.data.ok_or_else(|| CliError::ApiError {
+            code: "NO_DATA".to_string(),
+            message: "No data in response".to_string(),
+        })
+    }
+
     pub async fn upload<T: DeserializeOwned>(
         &self,
         path: &str,

@@ -319,54 +319,18 @@ mod tests {
         }
     }
 
-    fn create_test_task() -> InferenceTask {
-        InferenceTask {
-            id: Uuid::new_v4(),
-            model_id: Uuid::new_v4(),
-            user_id: Uuid::new_v4(),
-            api_key_id: Uuid::new_v4(),
-            status: TaskStatus::Pending,
-            inputs: serde_json::json!({"input": [1.0, 2.0, 3.0]}),
-            outputs: None,
-            error_message: None,
-            priority: 5,
-            retry_count: 0,
-            created_at: chrono::Utc::now(),
-            started_at: None,
-            completed_at: None,
-        }
-    }
-
-    fn create_test_model() -> ModelInfo {
-        ModelInfo {
-            id: Uuid::new_v4(),
-            name: "test-model".to_string(),
-            version: "1.0".to_string(),
-            file_path: "/path/to/model.onnx".to_string(),
-            file_size: Some(1024),
-            storage_backend: "local".to_string(),
-            input_shapes: None,
-            output_shapes: None,
-            metadata: None,
-            is_valid: true,
-            validation_error: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        }
-    }
-
     #[tokio::test]
     async fn test_task_message_task_id() {
         let task_id = Uuid::new_v4();
         let mut data = HashMap::new();
         data.insert("task_id".to_string(), task_id.to_string());
-        
+
         let task_message = TaskMessage {
             stream: "test-stream".to_string(),
             entry_id: "test-entry".to_string(),
             data,
         };
-        
+
         assert_eq!(task_message.task_id().unwrap(), task_id);
     }
 
@@ -377,7 +341,7 @@ mod tests {
             entry_id: "test-entry".to_string(),
             data: HashMap::new(),
         };
-        
+
         assert!(task_message.task_id().is_err());
     }
 
@@ -400,7 +364,7 @@ mod tests {
                 gpu_device_id: 0,
             };
             let engine = Arc::new(InferenceEngine::new(&onnx_config).unwrap());
-            
+
             let processor = TaskProcessor::new(db, redis, engine, 3, 1000);
             assert_eq!(processor.max_retries, 3);
             assert_eq!(processor.retry_base_delay_ms, 1000);

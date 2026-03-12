@@ -188,6 +188,8 @@ fn model_routes() -> Router<AppState> {
         .route("/:id", get(handlers::model::get))
         .route("/:id", delete(handlers::model::delete))
         .route("/:id", put(handlers::model::update))
+        .route("/:name/:version", get(handlers::model::get_by_name_version))
+        .route("/:name/:version", delete(handlers::model::delete_by_name_version))
 }
 ```
 

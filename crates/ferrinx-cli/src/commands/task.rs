@@ -28,7 +28,7 @@ pub async fn handle_task(
 ) -> Result<()> {
     match cmd {
         TaskCommands::List { status, limit } => {
-            let mut path = "/tasks".to_string();
+            let mut path = "/inference".to_string();
             let mut params = Vec::new();
 
             if let Some(s) = status {
@@ -46,22 +46,13 @@ pub async fn handle_task(
             output::print_tasks(&tasks, config.output_format)?;
         }
         TaskCommands::Status { task_id } => {
-            let task: InferenceTask = client.get(&format!("/tasks/{}", task_id)).await?;
+            let task: InferenceTask = client.get(&format!("/inference/{}", task_id)).await?;
             output::print_task_status(&task, config.output_format)?;
         }
         TaskCommands::Cancel { task_id } => {
-            #[derive(serde::Deserialize)]
-            struct CancelResponse {
-                task_id: uuid::Uuid,
-                status: String,
-            }
+            let _: serde_json::Value = client.delete(&format!("/inference/{}", task_id)).await?;
 
-            let response: CancelResponse = client
-                .post(&format!("/tasks/{}/cancel", task_id), &serde_json::json!({}))
-                .await?;
-
-            output::print_success(&format!("Task cancelled: {}", response.task_id));
-            println!("Status: {}", response.status);
+            output::print_success(&format!("Task cancelled: {}", task_id));
         }
     }
 

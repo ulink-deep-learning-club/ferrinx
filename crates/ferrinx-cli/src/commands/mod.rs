@@ -45,12 +45,6 @@ pub struct CreateUserRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BootstrapRequest {
-    pub username: String,
-    pub password: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateApiKeyRequest {
     pub name: String,
     pub permissions: Option<ferrinx_common::Permissions>,

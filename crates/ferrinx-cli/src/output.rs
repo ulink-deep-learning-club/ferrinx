@@ -1,7 +1,7 @@
 use crate::config::OutputFormat;
 use crate::error::Result;
 use comfy_table::{Cell, CellAlignment, ContentArrangement, Table};
-use ferrinx_common::{ApiKeyInfo, InferenceTask, ModelInfo};
+use ferrinx_common::{ApiKeyInfo, InferenceTask};
 use serde::Serialize;
 
 pub fn print_output<T: Serialize>(value: &T, format: OutputFormat) -> Result<()> {
@@ -24,18 +24,34 @@ pub fn print_toml<T: Serialize>(value: &T) -> Result<()> {
     Ok(())
 }
 
-pub fn print_models(models: &[ModelInfo], format: OutputFormat) -> Result<()> {
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct ModelDetail {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub is_valid: bool,
+    pub input_shapes: Option<serde_json::Value>,
+    pub output_shapes: Option<serde_json::Value>,
+    pub created_at: String,
+}
+
+pub fn print_models(models: &[ModelDetail], format: OutputFormat) -> Result<()> {
     match format {
         OutputFormat::Table => {
             let mut table = create_table(&["ID", "Name", "Version", "Valid", "Created"]);
 
             for model in models {
+                let short_id = if model.id.len() > 8 {
+                    &model.id[..8]
+                } else {
+                    &model.id
+                };
                 table.add_row(vec![
-                    Cell::new(&model.id.to_string()[..8]),
+                    Cell::new(short_id),
                     Cell::new(&model.name),
                     Cell::new(&model.version),
                     Cell::new(if model.is_valid { "✓" } else { "✗" }),
-                    Cell::new(format_datetime(model.created_at)),
+                    Cell::new(&model.created_at),
                 ]);
             }
 

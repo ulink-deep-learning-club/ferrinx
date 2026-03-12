@@ -250,6 +250,25 @@ pub async fn get(
     Ok(Json(ApiResponse::success(ModelDetail::from(model))))
 }
 
+pub async fn get_by_name_version(
+    State(state): State<AppState>,
+    Extension(api_key): Extension<ferrinx_common::ApiKeyInfo>,
+    Path((name, version)): Path<(String, String)>,
+) -> Result<Json<ApiResponse<ModelDetail>>> {
+    if !api_key.permissions.can_read_models() {
+        return Err(ApiError::PermissionDenied);
+    }
+
+    let model = state
+        .db
+        .models
+        .find_by_name_version(&name, &version)
+        .await?
+        .ok_or(ApiError::ModelNotFound)?;
+
+    Ok(Json(ApiResponse::success(ModelDetail::from(model))))
+}
+
 pub async fn delete(
     State(state): State<AppState>,
     Extension(api_key): Extension<ferrinx_common::ApiKeyInfo>,
@@ -269,6 +288,28 @@ pub async fn delete(
 
     state.storage.delete(&model.file_path).await?;
     state.db.models.delete(&id).await?;
+
+    Ok(Json(ApiResponse::success(())))
+}
+
+pub async fn delete_by_name_version(
+    State(state): State<AppState>,
+    Extension(api_key): Extension<ferrinx_common::ApiKeyInfo>,
+    Path((name, version)): Path<(String, String)>,
+) -> Result<Json<ApiResponse<()>>> {
+    if !api_key.permissions.can_delete_models() {
+        return Err(ApiError::PermissionDenied);
+    }
+
+    let model = state
+        .db
+        .models
+        .find_by_name_version(&name, &version)
+        .await?
+        .ok_or(ApiError::ModelNotFound)?;
+
+    state.storage.delete(&model.file_path).await?;
+    state.db.models.delete(&model.id).await?;
 
     Ok(Json(ApiResponse::success(())))
 }

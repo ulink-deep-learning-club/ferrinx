@@ -5,6 +5,9 @@ pub enum DbError {
     #[error("Database connection error: {0}")]
     ConnectionError(#[from] sqlx::Error),
 
+    #[error("Connection error: {0}")]
+    Connection(String),
+
     #[error("Transaction error: {0}")]
     TransactionError(String),
 

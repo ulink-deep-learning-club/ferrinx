@@ -223,8 +223,13 @@ enum ModelCommands {
     
     /// Delete a model
     Delete {
-        /// Model ID
-        model_id: String,
+        /// Model name
+        #[arg(short, long)]
+        name: String,
+        
+        /// Model version
+        #[arg(short, long)]
+        version: String,
     },
 }
 
@@ -232,26 +237,50 @@ enum ModelCommands {
 enum InferCommands {
     /// Run synchronous inference
     Sync {
-        /// Model ID
-        model_id: String,
+        /// Model ID (use --name and --version as alternative)
+        model_id: Option<String>,
         
-        /// Input JSON file or JSON string
-        #[arg(short, long)]
-        input: String,
+        /// Model name (requires --version)
+        #[arg(short, long, requires = "version")]
+        name: Option<String>,
+        
+        /// Model version (requires --name)
+        #[arg(short, long, requires = "name")]
+        version: Option<String>,
+        
+        /// Input JSON file or JSON string (conflicts with --image)
+        #[arg(short, long, conflicts_with = "image")]
+        input: Option<String>,
+        
+        /// Image file for inference (conflicts with --input)
+        #[arg(short, long, conflicts_with = "input")]
+        image: Option<String>,
         
         /// Output file
-        #[arg(short, long)]
+        #[arg(short = 'O', long)]
         output: Option<String>,
     },
     
     /// Run asynchronous inference
     Async {
-        /// Model ID
-        model_id: String,
+        /// Model ID (use --name and --version as alternative)
+        model_id: Option<String>,
         
-        /// Input JSON file or JSON string
-        #[arg(short, long)]
-        input: String,
+        /// Model name (requires --version)
+        #[arg(short, long, requires = "version")]
+        name: Option<String>,
+        
+        /// Model version (requires --name)
+        #[arg(short, long, requires = "name")]
+        version: Option<String>,
+        
+        /// Input JSON file or JSON string (conflicts with --image)
+        #[arg(short, long, conflicts_with = "image")]
+        input: Option<String>,
+        
+        /// Image file for inference (conflicts with --input)
+        #[arg(short, long, conflicts_with = "input")]
+        image: Option<String>,
         
         /// Priority (high, normal, low)
         #[arg(short, long, default_value = "normal")]

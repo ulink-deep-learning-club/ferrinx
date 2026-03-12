@@ -31,6 +31,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    Bootstrap,
     Auth {
         #[command(subcommand)]
         cmd: AuthCommands,
@@ -79,6 +80,41 @@ async fn handle_status(client: &HttpClient) -> Result<()> {
     Ok(())
 }
 
+async fn handle_bootstrap(client: &HttpClient, config: &mut CliConfig) -> Result<()> {
+    use ferrinx_cli::error::CliError;
+
+    #[derive(serde::Deserialize)]
+    struct BootstrapResponse {
+        api_key: String,
+        #[allow(dead_code)]
+        user_id: String,
+    }
+
+    let response: BootstrapResponse = match client.post_raw("/bootstrap", serde_json::json!({})).await {
+        Ok(res) => res,
+        Err(e) => {
+            if e.to_string().contains("System already initialized") {
+                return Err(CliError::InvalidInput(
+                    "System is already initialized. Run 'ferrinx auth login' to authenticate.".to_string()
+                ));
+            }
+            return Err(e);
+        }
+    };
+
+    println!("✓ System initialized successfully!\n");
+    println!("  Admin user: admin");
+    println!("  API key:    {}\n", response.api_key);
+    println!("The API key has been saved to ~/.ferrinx/config.toml");
+    println!("You can now use other CLI commands.\n");
+    println!("Try: ferrinx model list");
+
+    config.api_key = Some(response.api_key);
+    config.save()?;
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
     if let Err(e) = run().await {
@@ -105,6 +141,9 @@ async fn run() -> Result<()> {
     let client = HttpClient::new(&config)?;
 
     match cli.command {
+        Commands::Bootstrap => {
+            handle_bootstrap(&client, &mut config).await?;
+        }
         Commands::Auth { cmd } => {
             handle_auth(cmd, &client, &mut config).await?;
         }

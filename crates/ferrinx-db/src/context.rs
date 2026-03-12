@@ -1,6 +1,7 @@
 use ferrinx_common::{DatabaseBackend, DatabaseConfig};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::error::{DbError, Result};
@@ -25,9 +26,25 @@ impl DbContext {
             ));
         }
 
+        let db_path = config.url.trim_start_matches("sqlite://").trim_start_matches("sqlite:");
+        
+        if let Some(parent) = Path::new(db_path).parent() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent).map_err(|e| {
+                    DbError::Connection(format!("Failed to create database directory: {}", e))
+                })?;
+            }
+        }
+
+        let connection_string = if config.url.contains('?') {
+            config.url.clone()
+        } else {
+            format!("{}?mode=rwc", config.url)
+        };
+
         let pool = SqlitePoolOptions::new()
             .max_connections(config.max_connections)
-            .connect(&config.url.replace("sqlite://", ""))
+            .connect(&connection_string)
             .await?;
 
         if config.run_migrations {

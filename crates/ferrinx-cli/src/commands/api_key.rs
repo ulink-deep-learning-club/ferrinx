@@ -95,7 +95,7 @@ pub async fn handle_api_key(
             };
 
             let key: ApiKeyInfo = client
-                .post(&format!("/api-keys/{}", key_id), &request)
+                .put(&format!("/api-keys/{}", key_id), &request)
                 .await?;
 
             output::print_success(&format!("API key updated: {}", key.name));

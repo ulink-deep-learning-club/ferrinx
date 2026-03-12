@@ -1047,6 +1047,7 @@ dependencies = [
  "comfy-table",
  "dirs",
  "ferrinx-common",
+ "image",
  "indicatif",
  "reqwest 0.13.2",
  "rpassword",

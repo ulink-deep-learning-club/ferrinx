@@ -18,6 +18,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Config::default_dev()
     });
 
+    println!("Loaded configuration: {:?}", config);
+
     init_logging(&config);
 
     if let Err(errors) = config.validate() {

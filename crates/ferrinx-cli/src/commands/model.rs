@@ -1,10 +1,9 @@
 use crate::client::HttpClient;
-use crate::commands::{RegisterModelRequest, UploadModelResponse};
+use crate::commands::RegisterModelRequest;
 use crate::config::CliConfig;
 use crate::error::Result;
-use crate::output;
+use crate::output::{self, ModelDetail};
 use clap::Subcommand;
-use ferrinx_common::ModelInfo;
 use std::collections::HashMap;
 
 #[derive(Subcommand)]
@@ -30,9 +29,32 @@ pub enum ModelCommands {
     Info {
         model_id: String,
     },
-    Delete {
+    Update {
         model_id: String,
+        #[arg(short, long)]
+        name: Option<String>,
+        #[arg(short, long)]
+        version: Option<String>,
     },
+    Delete {
+        #[arg(short, long)]
+        name: String,
+        #[arg(short, long)]
+        version: String,
+    },
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ModelResponse {
+    id: String,
+    name: String,
+    version: String,
+    #[allow(dead_code)]
+    file_path: Option<String>,
+    #[allow(dead_code)]
+    file_size: Option<i64>,
+    is_valid: bool,
+    validation_error: Option<String>,
 }
 
 pub async fn handle_model(
@@ -50,14 +72,17 @@ pub async fn handle_model(
             form_data.insert("name".to_string(), name.clone());
             form_data.insert("version".to_string(), version.clone());
 
-            let response: UploadModelResponse = client
+            let response: ModelResponse = client
                 .upload("/models/upload", &model_path, form_data)
                 .await?;
 
             output::print_success("Model uploaded");
-            println!("Model ID: {}", response.model_id);
+            println!("Model ID: {}", response.id);
             println!("Name: {}", response.name);
             println!("Version: {}", response.version);
+            if !response.is_valid {
+                println!("Validation error: {:?}", response.validation_error);
+            }
         }
         ModelCommands::Register {
             server_path,
@@ -70,12 +95,15 @@ pub async fn handle_model(
                 version,
             };
 
-            let response: UploadModelResponse = client.post("/models/register", &request).await?;
+            let response: ModelResponse = client.post("/models/register", &request).await?;
 
             output::print_success("Model registered");
-            println!("Model ID: {}", response.model_id);
+            println!("Model ID: {}", response.id);
             println!("Name: {}", response.name);
             println!("Version: {}", response.version);
+            if !response.is_valid {
+                println!("Validation error: {:?}", response.validation_error);
+            }
         }
         ModelCommands::List { name } => {
             let mut path = "/models".to_string();
@@ -83,16 +111,33 @@ pub async fn handle_model(
                 path = format!("{}?name={}", path, n);
             }
 
-            let models: Vec<ModelInfo> = client.get(&path).await?;
+            let models: Vec<ModelDetail> = client.get(&path).await?;
             output::print_models(&models, config.output_format)?;
         }
         ModelCommands::Info { model_id } => {
-            let model: ModelInfo = client.get(&format!("/models/{}", model_id)).await?;
+            let model: ModelDetail = client.get(&format!("/models/{}", model_id)).await?;
             output::print_output(&model, config.output_format)?;
         }
-        ModelCommands::Delete { model_id } => {
-            let _: serde_json::Value = client.delete(&format!("/models/{}", model_id)).await?;
-            output::print_success(&format!("Model deleted: {}", model_id));
+        ModelCommands::Update {
+            model_id,
+            name,
+            version,
+        } => {
+            #[derive(serde::Serialize)]
+            struct UpdateModelRequest {
+                #[serde(skip_serializing_if = "Option::is_none")]
+                name: Option<String>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                version: Option<String>,
+            }
+
+            let request = UpdateModelRequest { name, version };
+            let model: ModelDetail = client.put(&format!("/models/{}", model_id), &request).await?;
+            output::print_success(&format!("Model updated: {}", model.name));
+        }
+        ModelCommands::Delete { name, version } => {
+            let _: serde_json::Value = client.delete(&format!("/models/{}/{}", name, version)).await?;
+            output::print_success(&format!("Model deleted: {}:{}", name, version));
         }
     }
 
