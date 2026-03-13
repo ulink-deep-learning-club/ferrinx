@@ -1,31 +1,37 @@
 # Ferrinx
 
-A high-performance ONNX inference backend service built in Rust, featuring both synchronous and asynchronous inference modes, RESTful API, and CLI client.
+A lightweight ONNX inference service with simplicity and flexibility in mind, while maintaining decent performance.
 
-## Features
+Turn your ONNX models into HTTP APIs with minimal fuss. One binary, one config file, and you're running.
 
-- **Dual Inference Modes**: 
-  - Sync: Low-latency (<100ms), runs in API process, local models only
-  - Async: Distributed, routes to best available Worker, supports model routing
-- **Intelligent Model Routing**: Async tasks are routed to Workers based on model availability:
-  - Priority: cached → available → error
-- **Graceful Degradation**: 
-  - Without Redis: operates as simple inference engine (sync only)
-  - With Redis: full distributed async inference
-- **High Performance**: Built on `ort` (ONNX Runtime bindings for Rust) with `spawn_blocking` for CPU-intensive inference
-- **Scalable Architecture**: Independent worker processes with model-aware task distribution
-- **Flexible Storage**: Local filesystem storage for model files (pre-distributed models)
-- **Database Agnostic**: PostgreSQL for production, SQLite for development/testing
-- **API Key Authentication**: Secure authentication with Redis caching and database fallback
-- **CLI Client**: Lightweight command-line tool for administration and inference
+## Quick Start
+
+```bash
+# 1. Build
+cargo build --release
+
+# 2. Run API server
+./target/release/ferrinx-api
+
+# 3. Bootstrap (creates admin user, saves API key to config)
+./target/release/ferrinx bootstrap  # Using ferrinx cli
+
+# 4. Register a model (when API and CLI are on the same machine)
+./target/release/ferrinx model register --model-config tests/fixtures/models/hanzi-tiny.toml
+
+# 5. Run inference
+./target/release/ferrinx infer sync --name hanzi-tiny --version 1.0 --image tests/fixtures/models/#U4e16.jpg  # An image of character 世
+```
+
+That's it. No Docker, no complex config files, no model repository layout.
 
 ## Architecture
 
-Ferrinx supports two deployment modes:
+Ferrinx keeps it simple with two deployment modes:
 
-### Simplified Mode (No Redis)
+### Simple Mode (No Redis)
 
-When Redis is unavailable, Ferrinx operates as a simple inference engine with HTTP interface:
+Just run the binary and go. Perfect for development, testing, or when you don't want extra infrastructure:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -49,9 +55,9 @@ When Redis is unavailable, Ferrinx operates as a simple inference engine with HT
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Full Mode (With Redis)
+### Distributed Mode (With Redis)
 
-With Redis, Ferrinx provides distributed async inference with intelligent model routing:
+When you need to scale beyond a single machine, add Redis for task distribution:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -88,13 +94,13 @@ With Redis, Ferrinx provides distributed async inference with intelligent model 
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Model Routing Strategy (Async Inference Only)
+### How Model Routing Works
 
-When submitting an async inference task, the system routes it to the best available Worker:
+In distributed mode, tasks are sent to the best available worker:
 
-1. **Priority 1**: Worker with model already cached in memory (fastest)
-2. **Priority 2**: Worker with model file available (needs loading)
-3. **No Worker available**: Returns error `NO_WORKER_AVAILABLE`
+1. **Fastest**: Workers with the model already loaded in memory
+2. **Next best**: Workers that have the model file (will load it)
+3. **No luck**: Returns an error if no worker can handle the model
 
 Workers report their model status to Redis:
 - Which models they have access to (file exists)
@@ -148,8 +154,8 @@ ferrinx-cli     ← (HTTP client only, no core/db dependency)
 ### Prerequisites
 
 - Rust 1.70+
-- PostgreSQL 14+ (or SQLite 3.35+ for development)
-- Redis 6.2+
+- SQLite 3.35+ (default, for development)
+- Redis 6.2+ (optional, for distributed mode)
 - ONNX Runtime
 
 ### Installation
@@ -162,23 +168,29 @@ cd ferrinx
 # Build
 cargo build --release
 
-# Run database migrations
-./target/release/ferrinx db migrate
-
-# Start API server
+# Start API server (SQLite database is auto-created)
 ./target/release/ferrinx-api
 
-# Start worker (in another terminal)
+# Start worker (in another terminal, requires Redis)
 ./target/release/ferrinx-worker
 ```
 
 ### Bootstrap
 
+#### Using CLI (Recommended)
+
 ```bash
-# Create first admin user
+# Create first admin user and save API key to config
+./target/release/ferrinx bootstrap
+```
+
+#### Using curl
+
+```bash
+# Create first admin user (returns secure random password)
 curl -X POST http://localhost:8080/api/v1/bootstrap \
   -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "your-password"}'
+  -d '{}'
 
 # Save the returned API key
 export FERRINX_API_KEY="frx_sk_..."
@@ -187,19 +199,25 @@ export FERRINX_API_KEY="frx_sk_..."
 ### CLI Usage
 
 ```bash
-# Configure CLI
-ferrinx config set api-url http://localhost:8080/api/v1
-ferrinx config set api-key $FERRINX_API_KEY
+# Configure CLI (optional if already bootstrapped)
+./target/release/ferrinx config set api-url http://localhost:8080/api/v1
+./target/release/ferrinx config set api-key $FERRINX_API_KEY
 
-# Upload a model
-ferrinx model upload ./model.onnx --name my-model --version 1.0
+# Register a model (when API and CLI on same machine)
+./target/release/ferrinx model register --model-config ./hanzi-tiny.toml
 
-# Synchronous inference
-ferrinx infer my-model:1.0 --input '{"input.1": [[1.0, 2.0, 3.0]]}'
+# Upload a model (when model is on client machine)
+./target/release/ferrinx model upload ./model.onnx --name my-model --version 1.0
+
+# Synchronous inference with image
+./target/release/ferrinx infer sync --name hanzi-tiny --version 1.0 --image ./test.jpg
+
+# Synchronous inference with JSON input
+./target/release/ferrinx infer sync <model-id> --input '{"input": {...}}'
 
 # Asynchronous inference
-ferrinx infer my-model:1.0 --input ./input.json --async
-ferrinx task status <task-id>
+./target/release/ferrinx infer async --name my-model --version 1.0 --input ./input.json
+./target/release/ferrinx task status <task-id>
 ```
 
 ## API Endpoints
@@ -277,6 +295,41 @@ execution_provider = "CPU"  # Options: CPU, CUDA, TensorRT, CoreML, ROCm
 
 ## Example: Synchronous Inference
 
+### Using CLI (Recommended)
+
+```bash
+# Using model name and version
+./target/release/ferrinx infer sync \
+  --name hanzi-tiny --version 1.0 \
+  --image ./image.jpg
+
+# Or using model ID
+./target/release/ferrinx infer sync <model-uuid> \
+  --input '{"input": {"dtype": "float32", "shape": [1, 1, 64, 64], "data": "base64..."}}'
+
+# Save output to file
+./target/release/ferrinx infer sync \
+  --name hanzi-tiny --version 1.0 \
+  --image ./image.jpg --output result.json
+```
+
+Response:
+```json
+{
+  "outputs": {
+    "prediction": {
+      "label": "世",
+      "probability": 0.98
+    }
+  },
+  "latency_ms": 45
+}
+```
+
+### Using curl (Raw API)
+
+> **Note**: Tensor data must be base64-encoded in the raw API. Use CLI for convenience.
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/inference/sync \
   -H "Authorization: Bearer frx_sk_..." \
@@ -284,25 +337,36 @@ curl -X POST http://localhost:8080/api/v1/inference/sync \
   -d '{
     "model_id": "model-uuid",
     "inputs": {
-      "input.1": [[1.0, 2.0, 3.0]]
+      "input": {
+        "dtype": "float32",
+        "shape": [1, 1, 64, 64],
+        "data": "base64-encoded-tensor-data"
+      }
     }
   }'
 ```
 
-Response:
-```json
-{
-  "request_id": "req-abc-123",
-  "data": {
-    "outputs": {
-      "output.1": [[0.5, 0.3, 0.2]]
-    },
-    "latency_ms": 45
-  }
-}
+## Example: Asynchronous Inference
+
+### Using CLI (Recommended)
+
+```bash
+# Submit async task
+./target/release/ferrinx infer async \
+  --name hanzi-tiny --version 1.0 \
+  --image ./image.jpg --priority high
+
+# Check task status
+./target/release/ferrinx task status <task-id>
+
+# List tasks
+./target/release/ferrinx task list --status pending
+
+# Cancel a task
+./target/release/ferrinx task cancel <task-id>
 ```
 
-## Example: Asynchronous Inference
+### Using curl (Raw API)
 
 ```bash
 # Submit task
@@ -311,7 +375,7 @@ curl -X POST http://localhost:8080/api/v1/inference \
   -H "Content-Type: application/json" \
   -d '{
     "model_id": "model-uuid",
-    "inputs": {"input.1": [[1.0, 2.0]]},
+    "inputs": {"input": {"dtype": "float32", "shape": [1, 1, 64, 64], "data": "base64..."}},
     "options": {"priority": "high"}
   }'
 
@@ -329,12 +393,12 @@ curl http://localhost:8080/api/v1/inference/task-456 \
 # Run tests
 cargo test
 
-# Run with SQLite (development)
-export FERRINX_DATABASE_URL="sqlite://./data/ferrinx.db"
+# Run with SQLite (default)
 cargo run --bin ferrinx-api
 
-# Enable S3 storage
-cargo build --features s3-storage
+# Run with custom database URL
+export FERRINX_DATABASE_URL="sqlite://./data/ferrinx.db"
+cargo run --bin ferrinx-api
 ```
 
 ## Tech Stack
@@ -350,23 +414,36 @@ cargo build --features s3-storage
 | Serialization | serde |
 | Logging | tracing |
 
+## Philosophy
+
+Ferrinx is built on these principles:
+
+1. **Simplicity First**: The codebase should be easy to understand and modify. No complex abstractions unless necessary.
+
+2. **Flexibility**: Components are loosely coupled. Don't want Redis? No problem. Prefer SQLite over PostgreSQL? Works great.
+
+3. **Decent Performance**: It's not trying to be the fastest, but it's not slow either. Good enough for most use cases.
+
+4. **Hackable**: Want to add a feature? The code is organized to make that straightforward.
+
 ## Deployment
 
-### Single Node
+### Simple Setup (Recommended)
 
-Suitable for development and small-scale production:
-- API Server + Worker on same machine
-- PostgreSQL single node
-- Redis single node
-- Local storage
+Perfect for development, experimentation, or small workloads:
+```bash
+# Just SQLite - no external dependencies needed
+cargo run --bin ferrinx-api
+```
 
-### Distributed
+### With Redis (Optional)
 
-For high-availability and scaling:
-- Multiple API servers behind load balancer (consistent hashing for sync inference)
-- Multiple workers consuming from Redis Streams
-- Redis Cluster for HA
-- NFS/shared storage for model files
+When you need to distribute work across multiple machines:
+```bash
+# Start Redis, then:
+cargo run --bin ferrinx-api
+cargo run --bin ferrinx-worker  # Run on same or different machine
+```
 
 ## Security
 
@@ -376,6 +453,10 @@ For high-availability and scaling:
 - Request size limits
 - SQL injection prevention via parameterized queries
 - Password hashing with bcrypt
+
+## Acknowledgments
+
+- **Hanzi-tiny** - A lightweight Chinese character recognition model provided by [ulink-deep-learning-club/HanziTiny](https://github.com/ulink-deep-learning-club/HanziTiny)
 
 ## License
 
@@ -390,17 +471,21 @@ Apache-2.0
 | **Model Configuration System** | `ferrinx-core/src/model/config.rs` | TOML-based model configuration with preprocessing/postprocessing pipelines |
 | **Preprocessing Pipelines** | `ferrinx-core/src/transform/pipeline.rs` | Full preprocessing operations: resize, grayscale, normalize, to_tensor, transpose, squeeze, unsqueeze, reshape, center_crop, pad |
 | **Postprocessing Pipelines** | `ferrinx-core/src/transform/pipeline.rs` | Full postprocessing operations: softmax, sigmoid, argmax, top_k, threshold, slice, map_labels, nms |
+| **NMS (Non-Maximum Suppression)** | `ferrinx-core/src/transform/pipeline.rs` | Object detection post-processing with IoU-based suppression |
 | **Model Routing** | `ferrinx-common/src/redis.rs` + `ferrinx-worker/src/model_reporter.rs` | Worker model status reporting and intelligent task routing (cached → available → error) |
 | **Synchronous Inference** | `ferrinx-api/src/handlers/inference.rs` | Low-latency in-process inference with LRU cache and semaphore-based concurrency control |
 | **Asynchronous Inference** | `ferrinx-api/src/handlers/inference.rs` + `ferrinx-worker/` | Redis Streams-based task queue with worker pool |
 | **API Key Authentication** | `ferrinx-api/src/middleware/auth.rs` | Redis cache with database fallback |
-| **Rate Limiting** | `ferrinx-api/src/middleware/rate_limit.rs` | Sliding window and token bucket algorithms |
-| **Bootstrap Endpoint** | `ferrinx-api/src/handlers/auth.rs` | Initial admin user creation |
+| **Rate Limiting** | `ferrinx-api/src/middleware/rate_limit.rs` | Sliding window and token bucket algorithms with DashMap for lock-free concurrency |
+| **Bootstrap Endpoint** | `ferrinx-api/src/handlers/auth.rs` | Initial admin user creation with secure random password |
 | **Model Upload/Validation** | `ferrinx-api/src/handlers/model.rs` + `ferrinx-core/src/model/loader.rs` | ONNX model upload with validation (magic number check, graph parsing) |
 | **Database Abstraction** | `ferrinx-db/` | Repository pattern with SQLite implementation (PostgreSQL pending) |
-| **CLI Client** | `ferrinx-cli/` | Full command-line interface for all operations |
-| **Worker Pool** | `ferrinx-worker/` | Independent worker processes with Redis Streams consumption |
+| **CLI Client** | `ferrinx-cli/` | Full command-line interface for all operations with e2e tests |
+| **Worker Pool** | `ferrinx-worker/` | Independent worker processes with Redis Streams consumption, task recovery, and health checks |
 | **Graceful Shutdown** | `ferrinx-api/src/main.rs` + `ferrinx-worker/src/main.rs` | Clean shutdown with cancellation tokens |
+| **Int8 Tensor Support** | `ferrinx-core/src/tensor.rs` | Int8 tensor type for quantized models |
+| **FerrinxTensor Serialization** | `ferrinx-core/src/tensor.rs` | Standardized tensor serialization with base64 encoding and shape metadata |
+| **Security Hardening** | Various | bcrypt password hashing, SQL injection prevention, IP spoofing fix, foreign key enforcement |
 
 ### 🟡 Partially Implemented
 
@@ -409,7 +494,7 @@ Apache-2.0
 | **Prometheus Metrics** | `ferrinx-api/src/handlers/mod.rs:36` | Basic metrics endpoint returning cache/concurrency status | Full Prometheus metrics: request counters, latency histograms, cache hit/miss counters |
 | **Transaction Support** | `ferrinx-db/src/context.rs` | Basic transaction begin/commit | Transaction methods (`save_tx`, `delete_tx`, `delete_by_user_tx`) not implemented in repositories |
 | **Database Backends** | `ferrinx-db/` | SQLite fully implemented | PostgreSQL implementation pending |
-| **GPU Execution Providers** | `ferrinx-core/src/inference/engine.rs` | CPU, CUDA, TensorRT, CoreML, ROCm all implemented | Only CoreML tested (on macOS); CUDA/TensorRT/ROCm need Linux/Windows + GPU hardware |
+| **GPU Execution Providers** | `ferrinx-core/src/inference/engine.rs` | CPU, CUDA, TensorRT, CoreML, ROCm all implemented via ort 2.0 API | Only CoreML tested (on macOS); CUDA/TensorRT/ROCm need Linux/Windows + GPU hardware testing |
 
 ### ❌ Not Started
 

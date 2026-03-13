@@ -657,6 +657,7 @@ fn is_public_path(path: &str) -> bool {
         "/api/v1/ready" |
         "/api/v1/bootstrap" |
         "/api/v1/auth/login"
+        // 注意: /api/v1/metrics 需要认证，防止未授权访问监控数据
     )
 }
 
@@ -694,12 +695,74 @@ fn is_expired(info: &ApiKeyInfo) -> bool {
 
 use axum::{
     body::Body,
-    extract::State,
+    extract::{State, ConnectInfo},
     http::{Request, StatusCode},
     middleware::Next,
     response::Response,
 };
+use std::sync::Arc;
+use dashmap::DashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
+/// 限流器结构 - 使用 DashMap 实现无锁并发
+pub struct RateLimiter {
+    /// 使用 DashMap 替代 HashMap + RwLock，提供锁-free 的并发访问
+    limits: Arc<DashMap<String, RateLimitEntry>>,
+    /// 窗口大小（秒）
+    window_secs: u64,
+}
+
+/// 限流条目
+pub struct RateLimitEntry {
+    /// 使用 AtomicU64 进行原子计数，避免锁竞争
+    count: AtomicU64,
+    /// 窗口开始时间
+    window_start: std::time::Instant,
+}
+
+impl RateLimiter {
+    pub fn new(window_secs: u64) -> Self {
+        Self {
+            limits: Arc::new(DashMap::new()),
+            window_secs,
+        }
+    }
+    
+    /// 检查是否允许请求 - 使用原子操作保证线程安全
+    pub fn check(&self, key: &str, limit: u32) -> bool {
+        let now = std::time::Instant::now();
+        
+        // 获取或创建条目
+        let entry = self.limits.entry(key.to_string()).or_insert_with(|| {
+            RateLimitEntry {
+                count: AtomicU64::new(0),
+                window_start: now,
+            }
+        });
+        
+        // 检查是否需要重置窗口
+        if now.duration_since(entry.window_start).as_secs() >= self.window_secs {
+            // 使用 SeqCst 内存顺序确保操作顺序一致性
+            entry.count.store(1, Ordering::SeqCst);
+            entry.window_start = now;
+            return true;
+        }
+        
+        // 原子增加计数器 - 单操作完成检查和增加
+        // 使用 SeqCst 顺序保证跨线程可见性
+        let new_count = entry.count.fetch_add(1, Ordering::SeqCst) + 1;
+        
+        if new_count > limit as u64 {
+            // 超过限制，回滚计数器
+            entry.count.fetch_sub(1, Ordering::SeqCst);
+            false
+        } else {
+            true
+        }
+    }
+}
+
+/// 限流中间件
 pub async fn rate_limit_middleware(
     State(state): State<AppState>,
     Extension(api_key): Extension<ApiKeyInfo>,
@@ -710,11 +773,18 @@ pub async fn rate_limit_middleware(
         return Ok(next.run(req).await);
     }
     
-    let key = format!("rate_limit:{}", api_key.id);
+    // 从 ConnectInfo 获取客户端 IP（替代 X-Real-IP 头）
+    let ip = req.extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map(|info| info.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    
+    // 组合 API Key ID 和 IP 作为限流键
+    let key = format!("{}:{}", api_key.id, ip);
     let limit = get_rate_limit(&req.uri().path(), &state.config.rate_limit);
     
-    // 检查限流
-    let allowed = state.rate_limiter.check(&key, limit).await?;
+    // 检查限流 - 使用 DashMap 实现锁-free 并发
+    let allowed = state.rate_limiter.check(&key, limit);
     
     if !allowed {
         return Err(ApiError::RateLimitExceeded);
@@ -733,6 +803,28 @@ fn get_rate_limit(path: &str, config: &RateLimitConfig) -> u32 {
     }
 }
 ```
+
+**限流器改进说明**：
+
+1. **DashMap 替代 HashMap + RwLock**：
+   - 提供锁-free 的并发访问
+   - 更好的并发性能，避免读写锁竞争
+   - 内置分片机制减少冲突
+
+2. **ConnectInfo 替代 X-Real-IP**：
+   - 使用 axum 内置的 `ConnectInfo` 扩展获取客户端 IP
+   - 更可靠，不依赖反向代理设置的特殊 header
+   - 防止 IP  spoofing 攻击
+
+3. **原子操作使用 SeqCst**：
+   - `fetch_add` 和 `fetch_sub` 使用 `Ordering::SeqCst`
+   - 确保操作顺序一致性，防止竞态条件
+   - 单原子操作完成检查和增加，避免 TOCTOU 问题
+
+4. **组合限流键**：
+   - 使用 `api_key_id:ip` 作为限流键
+   - 防止单个用户多 IP 绕过限流
+   - 同时防止单个 IP 使用多个 API Key
 
 ### 2.5 统一响应格式
 

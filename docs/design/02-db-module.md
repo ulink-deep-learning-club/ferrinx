@@ -38,6 +38,13 @@ impl DbContext {
         let pool = AnyPool::connect(&config.url).await?;
         let backend = config.backend.clone();
         
+        // SQLite 外键约束启用
+        if backend == DatabaseBackend::Sqlite {
+            sqlx::query("PRAGMA foreign_keys = ON")
+                .execute(&pool)
+                .await?;
+        }
+        
         let (models, tasks, api_keys, users) = match backend {
             DatabaseBackend::Postgresql => {
                 let pool_clone = pool.clone();
@@ -48,6 +55,26 @@ impl DbContext {
                     Arc::new(PostgresUserRepository::new(pool.clone())) as Arc<dyn UserRepository>,
                 )
             }
+            DatabaseBackend::Sqlite => {
+                let pool_clone = pool.clone();
+                (
+                    Arc::new(SqliteModelRepository::new(pool_clone)) as Arc<dyn ModelRepository>,
+                    Arc::new(SqliteTaskRepository::new(pool.clone())) as Arc<dyn TaskRepository>,
+                    Arc::new(SqliteApiKeyRepository::new(pool.clone())) as Arc<dyn ApiKeyRepository>,
+                    Arc::new(SqliteUserRepository::new(pool.clone())) as Arc<dyn UserRepository>,
+                )
+            }
+        };
+        
+        Ok(Self {
+            pool,
+            models,
+            tasks,
+            api_keys,
+            users,
+            backend,
+        })
+    }
             DatabaseBackend::Sqlite => {
                 let pool_clone = pool.clone();
                 (
@@ -826,6 +853,18 @@ pub enum DbError {
     
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
+    
+    #[error("Invalid UUID format: {0}")]
+    InvalidUuid(String),
+    
+    #[error("Invalid datetime format: {0}")]
+    InvalidDateTime(String),
+    
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+    
+    #[error("Foreign key constraint violation: {0}")]
+    ForeignKeyViolation(String),
 }
 
 impl From<sqlx::Error> for DbError {
@@ -836,6 +875,8 @@ impl From<sqlx::Error> for DbError {
                 let msg = e.message();
                 if msg.contains("unique constraint") || msg.contains("UNIQUE constraint failed") {
                     DbError::Duplicate(msg.to_string())
+                } else if msg.contains("foreign key") || msg.contains("FOREIGN KEY constraint failed") {
+                    DbError::ForeignKeyViolation(msg.to_string())
                 } else {
                     DbError::ConnectionError(sqlx::Error::Database(e))
                 }
@@ -848,9 +889,173 @@ impl From<sqlx::Error> for DbError {
 pub type Result<T> = std::result::Result<T, DbError>;
 ```
 
-## 8. 性能优化
+### 7.1 新错误类型说明
 
-### 8.1 连接池配置
+- **InvalidUuid**: UUID 格式解析错误，包含无效的用户输入
+- **InvalidDateTime**: 日期时间格式解析错误
+- **InvalidInput**: 通用输入验证错误，用于 LIMIT/OFFSET 等参数验证
+- **ForeignKeyViolation**: 外键约束违反错误，在启用外键的 SQLite 或 PostgreSQL 中触发
+
+## 8. 数据库行转换
+
+### 8.1 使用 TryFrom 进行类型安全转换
+
+从数据库行转换为领域模型时使用 `TryFrom` 而非 `From`，以处理可能的解析错误：
+
+```rust
+// src/repositories/model.rs
+
+/// 数据库行结构
+#[derive(sqlx::FromRow)]
+struct ModelRow {
+    id: String,
+    name: String,
+    version: String,
+    file_path: String,
+    file_size: Option<i64>,
+    storage_backend: String,
+    input_shapes: Option<String>,
+    output_shapes: Option<String>,
+    metadata: Option<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+/// 使用 TryFrom 实现安全的行转换
+impl TryFrom<ModelRow> for ModelInfo {
+    type Error = crate::error::DbError;
+    
+    fn try_from(row: ModelRow) -> crate::error::Result<Self> {
+        Ok(Self {
+            id: Uuid::parse_str(&row.id)
+                .map_err(|e| crate::error::DbError::InvalidUuid(
+                    format!("Invalid model id '{}': {}", row.id, e)
+                ))?,
+            name: row.name,
+            version: row.version,
+            file_path: row.file_path,
+            file_size: row.file_size,
+            storage_backend: row.storage_backend,
+            input_shapes: row.input_shapes
+                .map(|s| serde_json::from_str(&s))
+                .transpose()
+                .map_err(crate::error::DbError::SerializationError)?,
+            output_shapes: row.output_shapes
+                .map(|s| serde_json::from_str(&s))
+                .transpose()
+                .map_err(crate::error::DbError::SerializationError)?,
+            metadata: row.metadata
+                .map(|s| serde_json::from_str(&s))
+                .transpose()
+                .map_err(crate::error::DbError::SerializationError)?,
+            created_at: DateTime::parse_from_rfc3339(&row.created_at)
+                .map_err(|e| crate::error::DbError::InvalidDateTime(
+                    format!("Invalid created_at '{}': {}", row.created_at, e)
+                ))?
+                .with_timezone(&Utc),
+            updated_at: DateTime::parse_from_rfc3339(&row.updated_at)
+                .map_err(|e| crate::error::DbError::InvalidDateTime(
+                    format!("Invalid updated_at '{}': {}", row.updated_at, e)
+                ))?
+                .with_timezone(&Utc),
+        })
+    }
+}
+```
+
+**使用 TryFrom 的优势**：
+- 类型安全：所有解析错误都被显式处理
+- 详细错误信息：包含具体的字段值和错误原因
+- 避免 panic：不会因为无效数据导致程序崩溃
+- 易于调试：可以追踪到具体哪个字段解析失败
+
+### 8.2 SQL 注入防护 - LIMIT/OFFSET 验证
+
+为防止 SQL 注入攻击，所有用户提供的 LIMIT 和 OFFSET 参数都需要进行验证：
+
+```rust
+// src/repositories/model.rs (PostgreSQL)
+
+/// 最大允许的 LIMIT 值，防止资源耗尽攻击
+const MAX_LIMIT: usize = 10000;
+
+impl ModelRepository for PostgresModelRepository {
+    async fn list(&self, filter: &ModelFilter) -> Result<Vec<ModelInfo>, DbError> {
+        let mut query_builder = QueryBuilder::new("SELECT * FROM models WHERE 1=1");
+        
+        if let Some(name) = &filter.name {
+            query_builder.push(" AND name ILIKE ");
+            query_builder.push_bind(format!("%{}%", name));
+        }
+        
+        // is_valid 是计算字段，基于 metadata 和 input_shapes
+        if let Some(is_valid) = filter.is_valid {
+            if is_valid {
+                query_builder.push(" AND metadata IS NOT NULL AND input_shapes IS NOT NULL");
+            } else {
+                query_builder.push(" AND (metadata IS NULL OR input_shapes IS NULL)");
+            }
+        }
+        
+        query_builder.push(" ORDER BY created_at DESC");
+        
+        // 验证并添加 LIMIT
+        if let Some(limit) = filter.limit {
+            if limit > MAX_LIMIT {
+                return Err(DbError::InvalidInput(
+                    format!("Limit {} exceeds maximum allowed {}", limit, MAX_LIMIT)
+                ));
+            }
+            query_builder.push(" LIMIT ");
+            query_builder.push_bind(limit as i64);
+        }
+        
+        // 验证并添加 OFFSET
+        if let Some(offset) = filter.offset {
+            query_builder.push(" OFFSET ");
+            query_builder.push_bind(offset as i64);
+        }
+        
+        let rows: Vec<ModelRow> = query_builder
+            .build_query_as::<ModelRow>()
+            .fetch_all(&self.pool)
+            .await?;
+        
+        // 使用 TryFrom 转换每一行
+        rows.into_iter()
+            .map(ModelInfo::try_from)
+            .collect::<Result<Vec<_>, _>>()
+    }
+}
+```
+
+**SQL 注入防护措施**：
+- **参数绑定**：使用 sqlx 的 `push_bind` 方法，自动转义特殊字符
+- **LIMIT 上限**：限制最大返回行数，防止 DoS 攻击
+- **输入验证**：在构造 SQL 之前验证参数合法性
+- **使用 QueryBuilder**：避免字符串拼接构造 SQL
+
+### 8.3 SQLite 外键约束
+
+SQLite 默认不启用外键约束，需要在连接后显式启用：
+
+```rust
+// 在 DbContext::new 中启用外键约束
+if backend == DatabaseBackend::Sqlite {
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await?;
+}
+```
+
+**外键约束的作用**：
+- 防止删除被引用的记录（如删除有 API Key 的用户）
+- 级联删除（ON DELETE CASCADE）自动清理关联数据
+- 保证数据完整性
+
+## 9. 性能优化
+
+### 9.1 连接池配置
 
 ```rust
 impl DbContext {
@@ -872,7 +1077,7 @@ impl DbContext {
 }
 ```
 
-### 8.2 批量操作
+### 9.2 批量操作
 
 ```rust
 impl TaskRepository for PostgresTaskRepository {
@@ -900,7 +1105,7 @@ impl TaskRepository for PostgresTaskRepository {
 }
 ```
 
-### 8.3 查询优化
+### 10.3 查询优化
 
 ```rust
 // 使用索引覆盖查询
@@ -916,9 +1121,9 @@ async fn find_by_hash_minimal(&self, key_hash: &str) -> Result<Option<ApiKeyMini
 }
 ```
 
-## 9. 测试策略
+## 11. 测试策略
 
-### 9.1 单元测试
+### 11.1 单元测试
 
 ```rust
 #[cfg(test)]
@@ -995,7 +1200,7 @@ mod tests {
 }
 ```
 
-### 9.2 集成测试
+### 11.2 集成测试
 
 ```rust
 #[tokio::test]
@@ -1023,7 +1228,7 @@ async fn test_postgres_integration() {
 }
 ```
 
-## 10. 监控指标
+## 12. 监控指标
 
 ```rust
 impl DbContext {
@@ -1041,35 +1246,35 @@ pub struct PoolMetrics {
 }
 ```
 
-## 11. 设计要点
+## 13. 设计要点
 
-### 11.1 抽象与实现分离
+### 13.1 抽象与实现分离
 
 - 业务代码依赖 `dyn Repository` trait
 - 具体实现通过 `DbContext` 组合
 - 便于切换数据库后端
 
-### 11.2 事务支持
+### 13.2 事务支持
 
 - 提供 `_tx` 方法用于事务操作
 - `Transaction` 类型封装事务生命周期
 - 自动回滚机制
 
-### 11.3 兼容性处理
+### 13.3 兼容性处理
 
 - PostgreSQL 和 SQLite 共享大部分代码
 - 通过 `AnyPool` 实现后端无关
 - 迁移脚本分离，适配各自特性
 
-### 11.4 错误处理
+### 13.4 错误处理
 
 - 统一的 `DbError` 类型
 - 区分连接错误、查询错误、约束错误
 - 便于上层处理和日志记录
 
-## 12. 后续优化
+## 14. 后续优化
 
-### 12.1 读写分离
+### 14.1 读写分离
 
 ```rust
 pub struct DbContext {
@@ -1082,7 +1287,7 @@ pub struct DbContext {
 // 写操作使用 write_pool
 ```
 
-### 12.2 查询缓存
+### 14.2 查询缓存
 
 ```rust
 pub struct CachedModelRepository {
@@ -1117,7 +1322,7 @@ impl ModelRepository for CachedModelRepository {
 }
 ```
 
-### 12.3 审计日志
+### 14.3 审计日志
 
 ```rust
 pub struct AuditedRepository<T: Repository> {

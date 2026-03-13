@@ -287,6 +287,21 @@ pub fn check_permission(
 ```rust
 // src/handlers/bootstrap.rs
 
+/// 生成安全随机密码
+fn generate_secure_password() -> String {
+    use rand::Rng;
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                            abcdefghijklmnopqrstuvwxyz\
+                            0123456789!@#$%^&*";
+    let mut rng = rand::thread_rng();
+    (0..32)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect()
+}
+
 pub async fn bootstrap(
     State(state): State<AppState>,
     Json(req): Json<BootstrapRequest>,
@@ -297,9 +312,12 @@ pub async fn bootstrap(
         return Err(ApiError::BootstrapDisabled);
     }
     
-    // 2. 创建第一个管理员
+    // 2. 生成安全随机密码
+    let password = generate_secure_password();
+    let password_hash = hash_password(&password)?;
+    
+    // 3. 创建第一个管理员
     let user_id = uuid::Uuid::new_v4();
-    let password_hash = bcrypt::hash(&req.password, bcrypt::DEFAULT_COST)?;
     
     let user = User {
         id: user_id,
@@ -312,7 +330,7 @@ pub async fn bootstrap(
     
     state.db.users.save(&user).await?;
     
-    // 3. 创建管理员 API Key
+    // 4. 创建管理员 API Key
     let api_key = generate_permanent_key();
     let key_hash = sha256_hash(&api_key);
     
@@ -332,6 +350,8 @@ pub async fn bootstrap(
     
     state.db.api_keys.save(&key_record).await?;
     
+    // 5. 记录安全警告
+    warn!("SECURITY WARNING: Bootstrap completed with auto-generated password");
     info!("Bootstrap completed: admin user '{}' created", req.username);
     
     Ok(Json(ApiResponse::success(BootstrapResponse {
@@ -339,10 +359,22 @@ pub async fn bootstrap(
         username: user.username,
         role: "admin".to_string(),
         api_key,
-        message: "Bootstrap completed. This endpoint is now disabled.".to_string(),
+        password,  // 返回自动生成的密码（仅显示一次）
+        message: "Bootstrap completed. Save the password securely - it will not be shown again.".to_string(),
     })))
 }
 ```
+
+**安全引导密码生成说明**：
+
+Bootstrap 流程不再接受用户提供的密码，而是自动生成安全的随机密码：
+
+1. **密码生成**：使用加密安全的随机数生成器生成 32 位字符的密码
+2. **字符集**：包含大小写字母、数字和特殊字符
+3. **密码哈希**：使用 bcrypt 对生成的密码进行哈希存储
+4. **一次性显示**：密码仅在 bootstrap 响应中返回一次，之后不再显示
+5. **安全警告**：系统记录安全警告日志，提醒管理员保存密码
+6. **bcrypt 哈希**：使用 bcrypt::DEFAULT_COST（默认 12）进行密码哈希，自动处理加盐
 
 #### 管理员创建用户
 
