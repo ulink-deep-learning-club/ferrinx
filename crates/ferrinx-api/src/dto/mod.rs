@@ -100,6 +100,14 @@ pub struct LoginResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct BootstrapResponse {
+    pub user_id: String,
+    pub username: String,
+    pub password: String,
+    pub api_key: String,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ModelDetail {
     pub id: String,
     pub name: String,

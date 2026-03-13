@@ -35,8 +35,8 @@ axum = "0.8"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 tokio-util = "0.7"
-tempfile = "3.20"
-reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
+tempfile = "3.27"
+reqwest = { version = "0.13", features = ["json", "multipart", "stream"] }
 futures = "0.3"
 hex = "0.4"
 base64 = "0.22"

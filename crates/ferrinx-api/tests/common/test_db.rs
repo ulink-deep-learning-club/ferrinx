@@ -197,10 +197,7 @@ impl TestDb {
 }
 
 fn hash_password(password: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(password.as_bytes());
-    format!("{:x}", hasher.finalize())
+    ferrinx_common::hash_password(password).expect("Failed to hash password")
 }
 
 fn generate_raw_key() -> String {

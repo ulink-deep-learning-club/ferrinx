@@ -38,7 +38,8 @@ pub async fn create_user(
     }
 
     let user_id = Uuid::new_v4();
-    let password_hash = hash_password(&req.password);
+    let password_hash = ferrinx_common::hash_password(&req.password)
+        .map_err(|_| ApiError::InternalError)?;
 
     let role = match req.role.as_deref() {
         Some("admin") => ferrinx_common::UserRole::Admin,
@@ -147,7 +148,10 @@ pub async fn update_user(
     }
 
     if let Some(password) = req.password {
-        updates.password_hash = Some(hash_password(&password));
+        updates.password_hash = Some(
+            ferrinx_common::hash_password(&password)
+                .map_err(|_| ApiError::InternalError)?
+        );
     }
 
     if let Some(role_str) = req.role {
@@ -172,11 +176,4 @@ pub async fn update_user(
         .ok_or(ApiError::UserNotFound)?;
 
     Ok(Json(ApiResponse::success(UserDetail::from(updated_user))))
-}
-
-fn hash_password(password: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(password.as_bytes());
-    format!("{:x}", hasher.finalize())
 }

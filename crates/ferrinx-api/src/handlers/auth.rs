@@ -1,10 +1,11 @@
 use axum::{extract::State, Extension, Json};
 use chrono::{Duration, Utc};
 use rand::RngExt;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    dto::{ApiResponse, LoginRequest, LoginResponse},
+    dto::{ApiResponse, BootstrapResponse, LoginRequest, LoginResponse},
     error::{ApiError, Result},
     routes::AppState,
 };
@@ -24,8 +25,9 @@ pub async fn login(
         return Err(ApiError::InvalidCredentials);
     }
 
-    let password_hash = hash_password(&req.password);
-    if user.password_hash != password_hash {
+    if !ferrinx_common::verify_password(&req.password, &user.password_hash)
+        .map_err(|_| ApiError::InvalidCredentials)?
+    {
         return Err(ApiError::InvalidCredentials);
     }
 
@@ -79,27 +81,26 @@ fn generate_session_key() -> String {
     hex::encode(random_bytes)
 }
 
-fn hash_password(password: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(password.as_bytes());
-    format!("{:x}", hasher.finalize())
-}
-
 pub async fn bootstrap(
     State(state): State<AppState>,
-) -> Result<Json<ApiResponse<LoginResponse>>> {
+) -> Result<Json<ApiResponse<BootstrapResponse>>> {
     if state.db.users.exists().await? {
         return Err(ApiError::BadRequest(
             "System already initialized".to_string(),
         ));
     }
 
+    // Generate a secure random password for bootstrap admin
+    let admin_password = ferrinx_common::generate_secure_password(16);
+    let password_hash = ferrinx_common::hash_password(&admin_password)
+        .map_err(|_| ApiError::InternalError)?;
+
     let admin_id = Uuid::new_v4();
+    let admin_username = "admin".to_string();
     let admin_user = ferrinx_common::User {
         id: admin_id,
-        username: "admin".to_string(),
-        password_hash: hash_password("admin"),
+        username: admin_username.clone(),
+        password_hash,
         role: ferrinx_common::UserRole::Admin,
         is_active: true,
         created_at: Utc::now(),
@@ -128,9 +129,17 @@ pub async fn bootstrap(
 
     state.db.api_keys.save(&api_key).await?;
 
-    Ok(Json(ApiResponse::success(LoginResponse {
-        api_key: raw_key,
+    // Log warning about bootstrap being used
+    warn!(
+        user_id = %admin_id,
+        username = %admin_username,
+        "SECURITY WARNING: Bootstrap endpoint was used to create admin user. Ensure this is intentional and change the password immediately."
+    );
+
+    Ok(Json(ApiResponse::success(BootstrapResponse {
         user_id: admin_id.to_string(),
-        expires_at: None,
+        username: admin_username,
+        password: admin_password,
+        api_key: raw_key,
     })))
 }

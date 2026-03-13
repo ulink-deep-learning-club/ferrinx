@@ -7,6 +7,32 @@ pub fn sha256_hash(input: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// Hash a password using bcrypt with default cost factor (12)
+pub fn hash_password(password: &str) -> Result<String, bcrypt::BcryptError> {
+    bcrypt::hash(password, bcrypt::DEFAULT_COST)
+}
+
+/// Verify a password against a bcrypt hash
+pub fn verify_password(password: &str, hash: &str) -> Result<bool, bcrypt::BcryptError> {
+    bcrypt::verify(password, hash)
+}
+
+/// Generate a secure random password for bootstrap/admin purposes
+pub fn generate_secure_password(length: usize) -> String {
+    use rand::RngExt;
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                            abcdefghijklmnopqrstuvwxyz\
+                            0123456789\
+                            !@#$%^&*";
+    let mut rng = rand::rng();
+    (0..length)
+        .map(|_| {
+            let idx: usize = rng.random::<u8>() as usize % CHARSET.len();
+            CHARSET[idx] as char
+        })
+        .collect()
+}
+
 pub fn hash_key(key: &str) -> String {
     sha256_hash(key)
 }

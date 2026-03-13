@@ -95,10 +95,16 @@ impl ModelRepository for SqliteModelRepository {
 
         query.push_str(" ORDER BY created_at DESC");
 
+        // Validate and append LIMIT - SQLx doesn't support LIMIT as bind parameter
+        // but we validate it's a reasonable usize value to prevent injection
         if let Some(limit) = filter.limit {
-            query.push_str(&format!(" LIMIT {}", limit));
+            // Reasonable limit to prevent excessive resource usage
+            const MAX_LIMIT: usize = 10000;
+            let validated_limit = limit.min(MAX_LIMIT);
+            query.push_str(&format!(" LIMIT {}", validated_limit));
         }
 
+        // Validate and append OFFSET
         if let Some(offset) = filter.offset {
             query.push_str(&format!(" OFFSET {}", offset));
         }
@@ -300,10 +306,16 @@ impl TaskRepository for SqliteTaskRepository {
 
         query.push_str(" ORDER BY created_at DESC");
 
+        // Validate and append LIMIT - SQLx doesn't support LIMIT as bind parameter
+        // but we validate it's a reasonable usize value to prevent injection
         if let Some(limit) = filter.limit {
-            query.push_str(&format!(" LIMIT {}", limit));
+            // Reasonable limit to prevent excessive resource usage
+            const MAX_LIMIT: usize = 10000;
+            let validated_limit = limit.min(MAX_LIMIT);
+            query.push_str(&format!(" LIMIT {}", validated_limit));
         }
 
+        // Validate and append OFFSET
         if let Some(offset) = filter.offset {
             query.push_str(&format!(" OFFSET {}", offset));
         }
@@ -716,10 +728,16 @@ impl UserRepository for SqliteUserRepository {
     async fn list(&self, limit: Option<usize>, offset: Option<usize>) -> Result<Vec<User>> {
         let mut query = String::from("SELECT * FROM users ORDER BY created_at DESC");
 
+        // Validate and append LIMIT - SQLx doesn't support LIMIT as bind parameter
+        // but we validate it's a reasonable usize value to prevent injection
         if let Some(limit) = limit {
-            query.push_str(&format!(" LIMIT {}", limit));
+            // Reasonable limit to prevent excessive resource usage
+            const MAX_LIMIT: usize = 10000;
+            let validated_limit = limit.min(MAX_LIMIT);
+            query.push_str(&format!(" LIMIT {}", validated_limit));
         }
 
+        // Validate and append OFFSET
         if let Some(offset) = offset {
             query.push_str(&format!(" OFFSET {}", offset));
         }

@@ -309,13 +309,23 @@ impl PostprocessPipeline {
 }
 
 fn normalize_tensor(tensor: &ArrayD<f32>, mean: &[f32], std: &[f32]) -> ArrayD<f32> {
-    tensor.mapv(|v| {
-        let c = mean.len();
-        let _total: usize = tensor.shape().iter().product();
-        let flat_idx = 0;
-        let channel_idx = flat_idx % c;
-        (v - mean[channel_idx]) / std[channel_idx]
-    })
+    use ndarray::Dimension;
+    let num_channels = mean.len();
+
+    tensor
+        .indexed_iter()
+        .map(|(idx, &v)| {
+            // Get the channel index based on position
+            // Assumes NCHW format where channel is dimension 1 (or 0 for 1D tensors)
+            let channel_idx = if idx.ndim() >= 2 {
+                idx[1] % num_channels // NCHW: channel is dimension 1
+            } else {
+                idx[0] % num_channels // 1D: channels only
+            };
+            (v - mean[channel_idx]) / std[channel_idx]
+        })
+        .collect::<ndarray::Array<f32, _>>()
+        .into_dyn()
 }
 
 fn image_to_tensor(img: &image::DynamicImage, scale: f32) -> Result<ArrayD<f32>, TransformError> {

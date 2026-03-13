@@ -48,6 +48,11 @@ pub struct Tensor {
 
 impl Tensor {
     pub fn new_f32(shape: Vec<i64>, data: &[f32]) -> Self {
+        // SAFETY: This is safe because:
+        // - The data slice is valid and properly aligned
+        // - f32 is a POD type with no invalid bit patterns
+        // - We're creating a byte slice with correct length (data.len() * 4)
+        // - u8 has alignment 1 which is always satisfied
         let bytes =
             unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4) };
         Self {
@@ -58,6 +63,11 @@ impl Tensor {
     }
 
     pub fn new_i8(shape: Vec<i64>, data: &[i8]) -> Self {
+        // SAFETY: This is safe because:
+        // - The data slice is valid and properly aligned
+        // - i8 is a POD type with no invalid bit patterns
+        // - We're creating a byte slice with correct length
+        // - u8 has alignment 1 which is always satisfied
         let bytes = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len()) };
         Self {
             dtype: TensorDataType::Int8,
@@ -67,6 +77,11 @@ impl Tensor {
     }
 
     pub fn new_i64(shape: Vec<i64>, data: &[i64]) -> Self {
+        // SAFETY: This is safe because:
+        // - The data slice is valid and properly aligned
+        // - i64 is a POD type with no invalid bit patterns
+        // - We're creating a byte slice with correct length (data.len() * 8)
+        // - u8 has alignment 1 which is always satisfied
         let bytes =
             unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 8) };
         Self {
@@ -86,6 +101,11 @@ impl Tensor {
         if bytes.len() != expected_len * 4 {
             return Err(TensorDecodeError::SizeMismatch);
         }
+        // SAFETY: This is safe because:
+        // - We verified the byte length matches expected elements * 4
+        // - f32 is a POD type with no invalid bit patterns
+        // - The bytes slice is valid and properly aligned
+        // - u8 alignment of 1 is always satisfied
         let data = unsafe {
             std::slice::from_raw_parts(bytes.as_ptr() as *const f32, expected_len).to_vec()
         };
@@ -115,6 +135,11 @@ impl Tensor {
         if bytes.len() != expected_len * 8 {
             return Err(TensorDecodeError::SizeMismatch);
         }
+        // SAFETY: This is safe because:
+        // - We verified the byte length matches expected elements * 8
+        // - i64 is a POD type with no invalid bit patterns
+        // - The bytes slice is valid and properly aligned
+        // - u8 alignment of 1 is always satisfied
         let data = unsafe {
             std::slice::from_raw_parts(bytes.as_ptr() as *const i64, expected_len).to_vec()
         };

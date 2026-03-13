@@ -47,6 +47,11 @@ impl DbContext {
             .connect(&connection_string)
             .await?;
 
+        // Enable foreign key enforcement (SQLite disables it by default)
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await?;
+
         if config.run_migrations {
             Self::run_migrations(&pool).await?;
         }
