@@ -88,6 +88,8 @@ async fn handle_bootstrap(client: &HttpClient, config: &mut CliConfig) -> Result
         api_key: String,
         #[allow(dead_code)]
         user_id: String,
+        username: String,
+        password: String,
     }
 
     let response: BootstrapResponse = match client.post_raw("/bootstrap", serde_json::json!({})).await {
@@ -103,7 +105,8 @@ async fn handle_bootstrap(client: &HttpClient, config: &mut CliConfig) -> Result
     };
 
     println!("✓ System initialized successfully!\n");
-    println!("  Admin user: admin");
+    println!("  Admin user: {}", response.username);
+    println!("  Password:   {}", response.password);
     println!("  API key:    {}\n", response.api_key);
     println!("The API key has been saved to ~/.ferrinx/config.toml");
     println!("You can now use other CLI commands.\n");

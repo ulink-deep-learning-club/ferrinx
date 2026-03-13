@@ -13,13 +13,16 @@ cargo build --release
 # 2. Run API server
 ./target/release/ferrinx-api
 
-# 3. Bootstrap (creates admin user, saves API key to config)
+# 3. Bootstrap (creates admin user, saves API key to config, initial password is printed to console)
 ./target/release/ferrinx bootstrap  # Using ferrinx cli
 
-# 4. Register a model (when API and CLI are on the same machine)
+# 4. Login (if not using bootstrap)
+./target/release/ferrinx auth login -U admin
+
+# 5. Register a model (when API and CLI are on the same machine)
 ./target/release/ferrinx model register --model-config tests/fixtures/models/hanzi-tiny.toml
 
-# 5. Run inference
+# 6. Run inference
 ./target/release/ferrinx infer sync --name hanzi-tiny --version 1.0 --image tests/fixtures/models/#U4e16.jpg  # An image of character 世
 ```
 
@@ -316,13 +319,12 @@ execution_provider = "CPU"  # Options: CPU, CUDA, TensorRT, CoreML, ROCm
 Response:
 ```json
 {
-  "outputs": {
-    "prediction": {
-      "label": "世",
-      "probability": 0.98
-    }
+  "result": {
+    "class_index": 11,
+    "label": "#U4e16",
+    "probability": 0.9898158311843872
   },
-  "latency_ms": 45
+  "latency_ms": 10
 }
 ```
 
