@@ -221,40 +221,57 @@ fn prepare_inputs(
 }
     
     /// 将 JSON 值转换为 ONNX 张量
+    /// 
+    /// 输入格式必须是 Tensor 结构：
+    /// {
+    ///   "dtype": "float32" | "int8" | "int64",
+    ///   "shape": [...],
+    ///   "data": "<base64-encoded-binary>"
+    /// }
     fn value_to_tensor(
         &self,
         value: serde_json::Value,
         input_type: &ort::InputType,
     ) -> Result<ort::Value, CoreError> {
-        // 根据输入类型创建张量
-        match input_type {
-            ort::InputType::Tensor { ty, dimensions } => {
-                match ty {
-                    ort::TensorElementType::Float32 => {
-                        let data: Vec<f32> = serde_json::from_value(value)?;
-                        let shape: Vec<usize> = dimensions
-                            .iter()
-                            .map(|d| *d as usize)
-                            .collect();
-                        Ok(ort::Value::from_array(
-                            ndarray::ArrayD::from_shape_vec(shape, data)?
-                        )?)
-                    }
-                    ort::TensorElementType::Int64 => {
-                        let data: Vec<i64> = serde_json::from_value(value)?;
-                        let shape: Vec<usize> = dimensions
-                            .iter()
-                            .map(|d| *d as usize)
-                            .collect();
-                        Ok(ort::Value::from_array(
-                            ndarray::ArrayD::from_shape_vec(shape, data)?
-                        )?)
-                    }
-                    // ... 其他类型
-                    _ => Err(CoreError::UnsupportedTensorType),
-                }
+        // 解析 Tensor 格式（JSON 中的 data 字段是 base64 编码的二进制数据）
+        let tensor: ferrinx_common::Tensor = serde_json::from_value(value)
+            .map_err(|e| CoreError::InvalidInput(format!("Expected Tensor format: {}", e)))?;
+        
+        // 验证 shape 匹配
+        let expected_shape: Vec<usize> = match input_type {
+            ort::InputType::Tensor { dimensions, .. } => {
+                dimensions.iter().map(|&d| d as usize).collect()
             }
-            _ => Err(CoreError::UnsupportedInputType),
+            _ => return Err(CoreError::UnsupportedInputType),
+        };
+        
+        let actual_shape: Vec<usize> = tensor.shape.iter().map(|&d| d as usize).collect();
+        if actual_shape != expected_shape {
+            return Err(CoreError::InvalidInput(format!(
+                "Shape mismatch: model expects {:?}, but tensor has {:?}",
+                expected_shape, actual_shape
+            )));
+        }
+        
+        // 根据 Tensor 类型解码数据
+        match (input_type, tensor.dtype) {
+            (ort::InputType::Tensor { ty: ort::TensorElementType::Float32, .. }, 
+             ferrinx_common::TensorDataType::Float32) => {
+                let data = tensor.decode_f32()
+                    .map_err(|e| CoreError::InvalidInput(format!("Failed to decode tensor: {}", e)))?;
+                Ok(ort::Value::from_array(
+                    ndarray::ArrayD::from_shape_vec(expected_shape, data)?
+                )?)
+            }
+            (ort::InputType::Tensor { ty: ort::TensorElementType::Int64, .. },
+             ferrinx_common::TensorDataType::Int64) => {
+                let data = tensor.decode_i64()
+                    .map_err(|e| CoreError::InvalidInput(format!("Failed to decode tensor: {}", e)))?;
+                Ok(ort::Value::from_array(
+                    ndarray::ArrayD::from_shape_vec(expected_shape, data)?
+                )?)
+            }
+            _ => Err(CoreError::UnsupportedTensorType),
         }
     }
     
@@ -273,11 +290,30 @@ fn prepare_inputs(
         Ok(result)
     }
     
-    /// 将 ONNX 张量转换为 JSON
+    /// 将 ONNX 张量转换为 JSON (Tensor 格式)
+    /// 
+    /// 输出格式：
+    /// {
+    ///   "dtype": "float32" | "int8" | "int64",
+    ///   "shape": [...],
+    ///   "data": "<base64-encoded-binary>"
+    /// }
     fn tensor_to_json(&self, value: &ort::Value) -> Result<serde_json::Value, CoreError> {
-        // 根据张量类型提取数据并转换为 JSON
-        // 实现细节省略
-        unimplemented!()
+        if let Ok(tensor) = value.try_extract_tensor::<f32>() {
+            let shape: Vec<i64> = tensor.0.iter().map(|&d| d as i64).collect();
+            let data: Vec<f32> = tensor.1.to_vec();
+            let ferrinx_tensor = ferrinx_common::Tensor::new_f32(shape, &data);
+            return Ok(serde_json::to_value(ferrinx_tensor)?);
+        }
+
+        if let Ok(tensor) = value.try_extract_tensor::<i64>() {
+            let shape: Vec<i64> = tensor.0.iter().map(|&d| d as i64).collect();
+            let data: Vec<i64> = tensor.1.to_vec();
+            let ferrinx_tensor = ferrinx_common::Tensor::new_i64(shape, &data);
+            return Ok(serde_json::to_value(ferrinx_tensor)?);
+        }
+
+        Ok(serde_json::Value::Null)
     }
     
     /// 预加载模型
@@ -1329,17 +1365,22 @@ pub use storage::{ModelStorage, LocalStorage};
 
 ```rust
 use ferrinx_core::{InferenceEngine, InferenceInput};
-use ferrinx_common::Config;
+use ferrinx_common::{Config, Tensor};
 
 async fn run_sync_inference() -> Result<(), Box<dyn std::error::Error>> {
     // 创建推理引擎
     let config = Config::from_file("config.toml")?;
     let engine = InferenceEngine::new(&config.onnx)?;
     
-    // 准备输入
+    // 准备输入 Tensor
+    // 模型期望输入 shape: [1, 1, 28, 28] (batch, channel, height, width)
+    let input_shape = vec![1i64, 1, 28, 28];
+    let input_data: Vec<f32> = vec![0.0; 1 * 1 * 28 * 28];
+    let tensor = Tensor::new_f32(input_shape, &input_data);
+    
     let inputs = InferenceInput {
         inputs: vec![
-            ("input.1".to_string(), json!([[1.0, 2.0, 3.0]])),
+            ("input.1".to_string(), serde_json::to_value(&tensor)?),
         ].into_iter().collect(),
     };
     
@@ -1350,11 +1391,65 @@ async fn run_sync_inference() -> Result<(), Box<dyn std::error::Error>> {
         inputs,
     ).await?;
     
+    // 输出也是 Tensor 格式
     println!("Output: {:?}", result.outputs);
     println!("Latency: {}ms", result.latency_ms);
     
     Ok(())
 }
+```
+
+### 5.1.1 Tensor 格式说明
+
+输入和输出都使用统一的 Tensor 格式：
+
+```json
+{
+  "dtype": "float32",  // 数据类型: float32, int8, int64
+  "shape": [1, 1, 28, 28],  // 张量形状
+  "data": "<base64-encoded-binary-data>"  // base64 编码的二进制数据
+}
+```
+
+**设计原则**:
+- **显式形状**: Tensor 必须包含明确的 shape 信息
+- **类型安全**: dtype 必须与模型期望的类型匹配
+- **二进制编码**: 数据使用 base64 编码，支持高效传输
+- **严格验证**: 推理引擎会验证 Tensor shape 是否与模型输入匹配
+
+**Python 客户端示例**:
+```python
+import base64
+import numpy as np
+import requests
+
+# 创建输入张量
+input_data = np.zeros((1, 1, 28, 28), dtype=np.float32)
+
+# 转换为 Tensor 格式
+tensor = {
+    "dtype": "float32",
+    "shape": [1, 1, 28, 28],
+    "data": base64.b64encode(input_data.tobytes()).decode('utf-8')
+}
+
+# 发送请求
+response = requests.post(
+    "http://localhost:8080/api/v1/inference/sync",
+    headers={"Authorization": f"Bearer {api_key}"},
+    json={
+        "model_id": "model-123",
+        "inputs": {"input": tensor}
+    }
+)
+
+# 解析输出
+result = response.json()
+output_tensor = result["data"]["outputs"]["output"]
+output_data = np.frombuffer(
+    base64.b64decode(output_tensor["data"]), 
+    dtype=np.float32
+).reshape(output_tensor["shape"])
 ```
 
 ### 5.2 模型上传与验证
@@ -1486,9 +1581,14 @@ async fn test_real_model_inference() {
     let config = OnnxConfig::default();
     let engine = InferenceEngine::new(&config).unwrap();
     
+    // 使用 Tensor 格式创建输入
+    let input_shape = vec![1i64, 1, 1, 3];
+    let input_data: Vec<f32> = vec![1.0, 2.0, 3.0];
+    let tensor = Tensor::new_f32(input_shape, &input_data);
+    
     let inputs = InferenceInput {
         inputs: vec![
-            ("input".to_string(), json!([[[1.0f32, 2.0, 3.0]]]),
+            ("input".to_string(), serde_json::to_value(&tensor)?),
         ].into_iter().collect(),
     };
     

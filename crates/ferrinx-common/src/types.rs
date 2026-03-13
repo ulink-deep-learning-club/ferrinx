@@ -1,7 +1,327 @@
 use chrono::{DateTime, Utc};
+use ndarray::{ArrayD, IxDyn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TensorDataType {
+    Float32,
+    Int8,
+    Int64,
+}
+
+impl TensorDataType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TensorDataType::Float32 => "float32",
+            TensorDataType::Int8 => "int8",
+            TensorDataType::Int64 => "int64",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "float32" | "f32" => Some(TensorDataType::Float32),
+            "int8" | "i8" => Some(TensorDataType::Int8),
+            "int64" | "i64" => Some(TensorDataType::Int64),
+            _ => None,
+        }
+    }
+
+    pub fn element_size(&self) -> usize {
+        match self {
+            TensorDataType::Float32 => 4,
+            TensorDataType::Int8 => 1,
+            TensorDataType::Int64 => 8,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tensor {
+    pub dtype: TensorDataType,
+    pub shape: Vec<i64>,
+    pub data: String,
+}
+
+impl Tensor {
+    pub fn new_f32(shape: Vec<i64>, data: &[f32]) -> Self {
+        let bytes =
+            unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4) };
+        Self {
+            dtype: TensorDataType::Float32,
+            shape,
+            data: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes),
+        }
+    }
+
+    pub fn new_i8(shape: Vec<i64>, data: &[i8]) -> Self {
+        let bytes = unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len()) };
+        Self {
+            dtype: TensorDataType::Int8,
+            shape,
+            data: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes),
+        }
+    }
+
+    pub fn new_i64(shape: Vec<i64>, data: &[i64]) -> Self {
+        let bytes =
+            unsafe { std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 8) };
+        Self {
+            dtype: TensorDataType::Int64,
+            shape,
+            data: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes),
+        }
+    }
+
+    pub fn decode_f32(&self) -> Result<Vec<f32>, TensorDecodeError> {
+        if self.dtype != TensorDataType::Float32 {
+            return Err(TensorDecodeError::TypeMismatch);
+        }
+        let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &self.data)
+            .map_err(|_| TensorDecodeError::InvalidBase64)?;
+        let expected_len: usize = self.shape.iter().filter(|&&d| d > 0).product::<i64>() as usize;
+        if bytes.len() != expected_len * 4 {
+            return Err(TensorDecodeError::SizeMismatch);
+        }
+        let data = unsafe {
+            std::slice::from_raw_parts(bytes.as_ptr() as *const f32, expected_len).to_vec()
+        };
+        Ok(data)
+    }
+
+    pub fn decode_i8(&self) -> Result<Vec<i8>, TensorDecodeError> {
+        if self.dtype != TensorDataType::Int8 {
+            return Err(TensorDecodeError::TypeMismatch);
+        }
+        let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &self.data)
+            .map_err(|_| TensorDecodeError::InvalidBase64)?;
+        let expected_len: usize = self.shape.iter().filter(|&&d| d > 0).product::<i64>() as usize;
+        if bytes.len() != expected_len {
+            return Err(TensorDecodeError::SizeMismatch);
+        }
+        Ok(bytes.iter().map(|&b| b as i8).collect())
+    }
+
+    pub fn decode_i64(&self) -> Result<Vec<i64>, TensorDecodeError> {
+        if self.dtype != TensorDataType::Int64 {
+            return Err(TensorDecodeError::TypeMismatch);
+        }
+        let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &self.data)
+            .map_err(|_| TensorDecodeError::InvalidBase64)?;
+        let expected_len: usize = self.shape.iter().filter(|&&d| d > 0).product::<i64>() as usize;
+        if bytes.len() != expected_len * 8 {
+            return Err(TensorDecodeError::SizeMismatch);
+        }
+        let data = unsafe {
+            std::slice::from_raw_parts(bytes.as_ptr() as *const i64, expected_len).to_vec()
+        };
+        Ok(data)
+    }
+
+    pub fn from_array_f32(array: &ArrayD<f32>) -> Self {
+        let shape: Vec<i64> = array.shape().iter().map(|&d| d as i64).collect();
+        let data: Vec<f32> = array.iter().copied().collect();
+        Self::new_f32(shape, &data)
+    }
+
+    pub fn from_array_i8(array: &ArrayD<i8>) -> Self {
+        let shape: Vec<i64> = array.shape().iter().map(|&d| d as i64).collect();
+        let data: Vec<i8> = array.iter().copied().collect();
+        Self::new_i8(shape, &data)
+    }
+
+    pub fn from_array_i64(array: &ArrayD<i64>) -> Self {
+        let shape: Vec<i64> = array.shape().iter().map(|&d| d as i64).collect();
+        let data: Vec<i64> = array.iter().copied().collect();
+        Self::new_i64(shape, &data)
+    }
+
+    pub fn to_array_f32(&self) -> Result<ArrayD<f32>, TensorDecodeError> {
+        let data = self.decode_f32()?;
+        let shape: Vec<usize> = self.shape.iter().map(|&d| d as usize).collect();
+        ArrayD::from_shape_vec(IxDyn(&shape), data).map_err(|_| TensorDecodeError::SizeMismatch)
+    }
+
+    pub fn to_array_i8(&self) -> Result<ArrayD<i8>, TensorDecodeError> {
+        let data = self.decode_i8()?;
+        let shape: Vec<usize> = self.shape.iter().map(|&d| d as usize).collect();
+        ArrayD::from_shape_vec(IxDyn(&shape), data).map_err(|_| TensorDecodeError::SizeMismatch)
+    }
+
+    pub fn to_array_i64(&self) -> Result<ArrayD<i64>, TensorDecodeError> {
+        let data = self.decode_i64()?;
+        let shape: Vec<usize> = self.shape.iter().map(|&d| d as usize).collect();
+        ArrayD::from_shape_vec(IxDyn(&shape), data).map_err(|_| TensorDecodeError::SizeMismatch)
+    }
+
+    pub fn unsqueeze(&self, axes: &[usize]) -> Result<Self, TensorDecodeError> {
+        match self.dtype {
+            TensorDataType::Float32 => {
+                let array = self.to_array_f32()?;
+                let mut new_shape: Vec<usize> = array.shape().to_vec();
+                for &axis in axes {
+                    if axis <= new_shape.len() {
+                        new_shape.insert(axis, 1);
+                    }
+                }
+                let new_array = array
+                    .into_shape_with_order(IxDyn(&new_shape))
+                    .map_err(|_| TensorDecodeError::SizeMismatch)?;
+                Ok(Self::from_array_f32(&new_array))
+            }
+            TensorDataType::Int8 => {
+                let array = self.to_array_i8()?;
+                let mut new_shape: Vec<usize> = array.shape().to_vec();
+                for &axis in axes {
+                    if axis <= new_shape.len() {
+                        new_shape.insert(axis, 1);
+                    }
+                }
+                let new_array = array
+                    .into_shape_with_order(IxDyn(&new_shape))
+                    .map_err(|_| TensorDecodeError::SizeMismatch)?;
+                Ok(Self::from_array_i8(&new_array))
+            }
+            TensorDataType::Int64 => {
+                let array = self.to_array_i64()?;
+                let mut new_shape: Vec<usize> = array.shape().to_vec();
+                for &axis in axes {
+                    if axis <= new_shape.len() {
+                        new_shape.insert(axis, 1);
+                    }
+                }
+                let new_array = array
+                    .into_shape_with_order(IxDyn(&new_shape))
+                    .map_err(|_| TensorDecodeError::SizeMismatch)?;
+                Ok(Self::from_array_i64(&new_array))
+            }
+        }
+    }
+
+    pub fn squeeze(&self, axes: &[usize]) -> Result<Self, TensorDecodeError> {
+        match self.dtype {
+            TensorDataType::Float32 => {
+                let array = self.to_array_f32()?;
+                let mut new_shape: Vec<usize> = array.shape().to_vec();
+                for &axis in axes.iter().rev() {
+                    if axis < new_shape.len() && new_shape[axis] == 1 {
+                        new_shape.remove(axis);
+                    }
+                }
+                let new_array = array
+                    .into_shape_with_order(IxDyn(&new_shape))
+                    .map_err(|_| TensorDecodeError::SizeMismatch)?;
+                Ok(Self::from_array_f32(&new_array))
+            }
+            TensorDataType::Int8 => {
+                let array = self.to_array_i8()?;
+                let mut new_shape: Vec<usize> = array.shape().to_vec();
+                for &axis in axes.iter().rev() {
+                    if axis < new_shape.len() && new_shape[axis] == 1 {
+                        new_shape.remove(axis);
+                    }
+                }
+                let new_array = array
+                    .into_shape_with_order(IxDyn(&new_shape))
+                    .map_err(|_| TensorDecodeError::SizeMismatch)?;
+                Ok(Self::from_array_i8(&new_array))
+            }
+            TensorDataType::Int64 => {
+                let array = self.to_array_i64()?;
+                let mut new_shape: Vec<usize> = array.shape().to_vec();
+                for &axis in axes.iter().rev() {
+                    if axis < new_shape.len() && new_shape[axis] == 1 {
+                        new_shape.remove(axis);
+                    }
+                }
+                let new_array = array
+                    .into_shape_with_order(IxDyn(&new_shape))
+                    .map_err(|_| TensorDecodeError::SizeMismatch)?;
+                Ok(Self::from_array_i64(&new_array))
+            }
+        }
+    }
+
+    pub fn reshape(&self, new_shape: &[i64]) -> Result<Self, TensorDecodeError> {
+        let shape: Vec<usize> = new_shape
+            .iter()
+            .map(|&d| if d < 0 { 1 } else { d as usize })
+            .collect();
+        match self.dtype {
+            TensorDataType::Float32 => {
+                let array = self.to_array_f32()?;
+                let new_array = array
+                    .into_shape_with_order(IxDyn(&shape))
+                    .map_err(|_| TensorDecodeError::SizeMismatch)?;
+                Ok(Self::from_array_f32(&new_array))
+            }
+            TensorDataType::Int8 => {
+                let array = self.to_array_i8()?;
+                let new_array = array
+                    .into_shape_with_order(IxDyn(&shape))
+                    .map_err(|_| TensorDecodeError::SizeMismatch)?;
+                Ok(Self::from_array_i8(&new_array))
+            }
+            TensorDataType::Int64 => {
+                let array = self.to_array_i64()?;
+                let new_array = array
+                    .into_shape_with_order(IxDyn(&shape))
+                    .map_err(|_| TensorDecodeError::SizeMismatch)?;
+                Ok(Self::from_array_i64(&new_array))
+            }
+        }
+    }
+
+    pub fn transpose(&self, axes: &[usize]) -> Result<Self, TensorDecodeError> {
+        match self.dtype {
+            TensorDataType::Float32 => {
+                let array = self.to_array_f32()?;
+                let transposed = array.permuted_axes(axes);
+                Ok(Self::from_array_f32(&transposed))
+            }
+            TensorDataType::Int8 => {
+                let array = self.to_array_i8()?;
+                let transposed = array.permuted_axes(axes);
+                Ok(Self::from_array_i8(&transposed))
+            }
+            TensorDataType::Int64 => {
+                let array = self.to_array_i64()?;
+                let transposed = array.permuted_axes(axes);
+                Ok(Self::from_array_i64(&transposed))
+            }
+        }
+    }
+
+    pub fn numel(&self) -> usize {
+        self.shape.iter().filter(|&&d| d > 0).product::<i64>() as usize
+    }
+
+    pub fn ndim(&self) -> usize {
+        self.shape.len()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum TensorDecodeError {
+    InvalidBase64,
+    SizeMismatch,
+    TypeMismatch,
+}
+
+impl std::fmt::Display for TensorDecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TensorDecodeError::InvalidBase64 => write!(f, "Invalid base64 encoding"),
+            TensorDecodeError::SizeMismatch => write!(f, "Data size does not match shape"),
+            TensorDecodeError::TypeMismatch => write!(f, "Tensor type mismatch"),
+        }
+    }
+}
+
+impl std::error::Error for TensorDecodeError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -772,5 +1092,106 @@ mod tests {
 
         model.metadata = None;
         assert!(!model.has_config());
+    }
+
+    #[test]
+    fn test_tensor_data_type_as_str() {
+        assert_eq!(TensorDataType::Float32.as_str(), "float32");
+        assert_eq!(TensorDataType::Int8.as_str(), "int8");
+        assert_eq!(TensorDataType::Int64.as_str(), "int64");
+    }
+
+    #[test]
+    fn test_tensor_data_type_from_str() {
+        assert_eq!(
+            TensorDataType::from_str("float32"),
+            Some(TensorDataType::Float32)
+        );
+        assert_eq!(
+            TensorDataType::from_str("f32"),
+            Some(TensorDataType::Float32)
+        );
+        assert_eq!(TensorDataType::from_str("int8"), Some(TensorDataType::Int8));
+        assert_eq!(TensorDataType::from_str("i8"), Some(TensorDataType::Int8));
+        assert_eq!(
+            TensorDataType::from_str("int64"),
+            Some(TensorDataType::Int64)
+        );
+        assert_eq!(TensorDataType::from_str("i64"), Some(TensorDataType::Int64));
+        assert_eq!(TensorDataType::from_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_tensor_data_type_element_size() {
+        assert_eq!(TensorDataType::Float32.element_size(), 4);
+        assert_eq!(TensorDataType::Int8.element_size(), 1);
+        assert_eq!(TensorDataType::Int64.element_size(), 8);
+    }
+
+    #[test]
+    fn test_tensor_new_f32_and_decode() {
+        let data = vec![1.0f32, 2.0, 3.0, 4.0];
+        let shape = vec![2, 2];
+        let tensor = Tensor::new_f32(shape.clone(), &data);
+
+        assert_eq!(tensor.dtype, TensorDataType::Float32);
+        assert_eq!(tensor.shape, shape);
+        assert!(!tensor.data.is_empty());
+
+        let decoded = tensor.decode_f32().unwrap();
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn test_tensor_new_i8_and_decode() {
+        let data = vec![1i8, -2, 3, -4, 5];
+        let shape = vec![5];
+        let tensor = Tensor::new_i8(shape.clone(), &data);
+
+        assert_eq!(tensor.dtype, TensorDataType::Int8);
+        assert_eq!(tensor.shape, shape);
+
+        let decoded = tensor.decode_i8().unwrap();
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn test_tensor_new_i64_and_decode() {
+        let data = vec![1i64, 2, 3, 4, 5];
+        let shape = vec![5];
+        let tensor = Tensor::new_i64(shape.clone(), &data);
+
+        assert_eq!(tensor.dtype, TensorDataType::Int64);
+        assert_eq!(tensor.shape, shape);
+
+        let decoded = tensor.decode_i64().unwrap();
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn test_tensor_decode_type_mismatch() {
+        let tensor = Tensor::new_f32(vec![2], &[1.0, 2.0]);
+        let result = tensor.decode_i64();
+        assert!(matches!(result, Err(TensorDecodeError::TypeMismatch)));
+
+        let tensor2 = Tensor::new_i8(vec![2], &[1, 2]);
+        let result2 = tensor2.decode_f32();
+        assert!(matches!(result2, Err(TensorDecodeError::TypeMismatch)));
+    }
+
+    #[test]
+    fn test_tensor_serialize_deserialize() {
+        let data = vec![1.0f32, 2.0, 3.0];
+        let shape = vec![3];
+        let tensor = Tensor::new_f32(shape, &data);
+
+        let json = serde_json::to_string(&tensor).unwrap();
+        let decoded: Tensor = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(decoded.dtype, TensorDataType::Float32);
+        assert_eq!(decoded.shape, vec![3]);
+
+        let values = decoded.decode_f32().unwrap();
+        assert_eq!(values, data);
     }
 }

@@ -207,15 +207,35 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 /// 同步推理请求
+/// 
+/// inputs 中的每个值必须是 Tensor 格式:
+/// ```json
+/// {
+///   "dtype": "float32" | "int8" | "int64",
+///   "shape": [...],
+///   "data": "<base64-encoded-binary>"
+/// }
+/// ```
 #[derive(Debug, Deserialize)]
 pub struct SyncInferRequest {
     pub model_id: String,
+    /// 输入张量，key 为输入层名称，value 为 Tensor 格式
     pub inputs: HashMap<String, serde_json::Value>,
 }
 
 /// 同步推理响应
+/// 
+/// outputs 中的每个值都是 Tensor 格式:
+/// ```json
+/// {
+///   "dtype": "float32" | "int8" | "int64",
+///   "shape": [...],
+///   "data": "<base64-encoded-binary>"
+/// }
+/// ```
 #[derive(Debug, Serialize)]
 pub struct SyncInferResponse {
+    /// 输出张量，key 为输出层名称，value 为 Tensor 格式
     pub outputs: HashMap<String, serde_json::Value>,
     pub latency_ms: u64,
 }
@@ -872,14 +892,136 @@ curl -H "Authorization: Bearer $API_KEY" \
 }
 
 # 单输入模型 - 任意 key 名称可用
+# 输入必须是 Tensor 格式: {dtype, shape, data}
 curl -X POST -H "Authorization: Bearer $API_KEY" \
-  -d '{"model_id": "model-123", "inputs": {"input": [[1.0, 2.0, ...]]}}' \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "model-123",
+    "inputs": {
+      "input": {
+        "dtype": "float32",
+        "shape": [1, 1, 28, 28],
+        "data": "<base64-encoded-data>"
+      }
+    }
+  }' \
   http://localhost:8080/api/v1/inference/sync
 
 # 多输入模型 - 必须使用精确层名
 curl -X POST -H "Authorization: Bearer $API_KEY" \
-  -d '{"model_id": "multi-input-model", "inputs": {"image": [...], "mask": [...]}}' \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model_id": "multi-input-model",
+    "inputs": {
+      "image": {
+        "dtype": "float32",
+        "shape": [1, 3, 224, 224],
+        "data": "<base64-encoded-data>"
+      },
+      "mask": {
+        "dtype": "float32",
+        "shape": [1, 1, 224, 224],
+        "data": "<base64-encoded-data>"
+      }
+    }
+  }' \
   http://localhost:8080/api/v1/inference/sync
+```
+
+#### 2.5.1 Tensor 数据格式
+
+所有推理输入/输出都使用统一的 **Tensor** 格式：
+
+```json
+{
+  "dtype": "float32",  // 数据类型: float32 | int8 | int64
+  "shape": [1, 3, 224, 224],  // 张量形状
+  "data": "AAABAAIAAw..."  // base64 编码的二进制数据
+}
+```
+
+**字段说明**:
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `dtype` | string | 数据类型，支持 `float32`, `int8`, `int64` |
+| `shape` | array | 张量形状，如 `[1, 3, 224, 224]` 表示 batch=1, channel=3, height=224, width=224 |
+| `data` | string | base64 编码的二进制数据 |
+
+**重要约束**:
+1. **显式形状**: Tensor 的 shape 必须与模型期望的输入 shape 完全匹配
+2. **类型匹配**: dtype 必须与模型输入类型一致
+3. **数据大小**: 数据长度必须等于 shape 各维度的乘积 × 元素大小
+
+**Python 客户端示例**:
+```python
+import base64
+import numpy as np
+import requests
+
+# 创建 numpy 数组
+input_array = np.random.randn(1, 3, 224, 224).astype(np.float32)
+
+# 转换为 Tensor 格式
+def to_tensor(arr):
+    return {
+        "dtype": "float32" if arr.dtype == np.float32 else "int64",
+        "shape": list(arr.shape),
+        "data": base64.b64encode(arr.tobytes()).decode('utf-8')
+    }
+
+tensor = to_tensor(input_array)
+
+# 发送推理请求
+response = requests.post(
+    "http://localhost:8080/api/v1/inference/sync",
+    headers={"Authorization": f"Bearer {api_key}"},
+    json={
+        "model_id": "resnet50",
+        "inputs": {"input": tensor}
+    }
+)
+
+# 解析响应
+result = response.json()
+output_tensor = result["data"]["outputs"]["output"]
+output_array = np.frombuffer(
+    base64.b64decode(output_tensor["data"]),
+    dtype=np.float32
+).reshape(output_tensor["shape"])
+```
+
+**JavaScript/TypeScript 客户端示例**:
+```typescript
+import { Buffer } from 'buffer';
+
+// 创建 Float32Array
+const data = new Float32Array(1 * 3 * 224 * 224);
+// ... fill data ...
+
+// 转换为 Tensor 格式
+const tensor = {
+  dtype: "float32",
+  shape: [1, 3, 224, 224],
+  data: Buffer.from(data.buffer).toString('base64')
+};
+
+// 发送请求
+const response = await fetch('http://localhost:8080/api/v1/inference/sync', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${apiKey}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    model_id: 'resnet50',
+    inputs: { input: tensor }
+  })
+});
+
+const result = await response.json();
+// 解码输出
+const outputData = Buffer.from(result.data.outputs.output.data, 'base64');
+const outputArray = new Float32Array(outputData.buffer);
 ```
 
 ### 2.6 错误处理

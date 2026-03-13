@@ -25,6 +25,14 @@ type = "to_tensor"
 dtype = "float32"
 scale = 255.0
 
+[[inputs.preprocess]]
+type = "transpose"
+axes = [2, 0, 1]
+
+[[inputs.preprocess]]
+type = "unsqueeze"
+axes = [0]
+
 [[outputs]]
 name = "output"
 alias = "prediction"

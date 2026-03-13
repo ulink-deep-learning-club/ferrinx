@@ -5,7 +5,7 @@ use std::io::Write;
 use tempfile::NamedTempFile;
 
 use common::TestApp;
-use ferrinx_common::UserRole;
+use ferrinx_common::{Tensor, UserRole};
 
 fn create_test_config_file(api_url: &str, api_key: Option<&str>) -> NamedTempFile {
     let mut file = NamedTempFile::new().unwrap();
@@ -62,6 +62,7 @@ async fn test_http_client_get() {
         timeout: 30,
         verify_ssl: true,
         output_format: ferrinx_cli::config::OutputFormat::Json,
+        ..Default::default()
     };
 
     let client = ferrinx_cli::HttpClient::new(&config).unwrap();
@@ -81,6 +82,7 @@ async fn test_http_client_post() {
         timeout: 30,
         verify_ssl: true,
         output_format: ferrinx_cli::config::OutputFormat::Json,
+        ..Default::default()
     };
 
     let client = ferrinx_cli::HttpClient::new(&config).unwrap();
@@ -107,6 +109,7 @@ async fn test_http_client_delete() {
         timeout: 30,
         verify_ssl: true,
         output_format: ferrinx_cli::config::OutputFormat::Json,
+        ..Default::default()
     };
 
     let client = ferrinx_cli::HttpClient::new(&config).unwrap();
@@ -135,6 +138,7 @@ async fn test_http_client_error_handling() {
         timeout: 30,
         verify_ssl: true,
         output_format: ferrinx_cli::config::OutputFormat::Json,
+        ..Default::default()
     };
 
     let client = ferrinx_cli::HttpClient::new(&config).unwrap();
@@ -203,6 +207,7 @@ async fn test_bootstrap_command_flow() {
         timeout: 30,
         verify_ssl: true,
         output_format: ferrinx_cli::config::OutputFormat::Json,
+        ..Default::default()
     };
 
     let client = ferrinx_cli::HttpClient::new(&config).unwrap();
@@ -229,6 +234,7 @@ async fn test_api_key_operations() {
         timeout: 30,
         verify_ssl: true,
         output_format: ferrinx_cli::config::OutputFormat::Json,
+        ..Default::default()
     };
 
     let client = ferrinx_cli::HttpClient::new(&config).unwrap();
@@ -262,6 +268,7 @@ async fn test_model_operations_via_client() {
         timeout: 30,
         verify_ssl: true,
         output_format: ferrinx_cli::config::OutputFormat::Json,
+        ..Default::default()
     };
 
     let client = ferrinx_cli::HttpClient::new(&config).unwrap();
@@ -298,18 +305,22 @@ async fn test_inference_via_client() {
         timeout: 30,
         verify_ssl: true,
         output_format: ferrinx_cli::config::OutputFormat::Json,
+        ..Default::default()
     };
 
     let client = ferrinx_cli::HttpClient::new(&config).unwrap();
 
+    let input_shape = vec![1i64, 1, 64, 64];
     let input_data: Vec<f32> = vec![0.0; 1 * 1 * 64 * 64];
+    let tensor = Tensor::new_f32(input_shape, &input_data);
+
     let infer_result: serde_json::Value = client
         .post(
             "/api/v1/inference/sync",
             &serde_json::json!({
                 "model_id": model.id.to_string(),
                 "inputs": {
-                    "input": input_data
+                    "input": serde_json::to_value(&tensor).unwrap()
                 }
             }),
         )

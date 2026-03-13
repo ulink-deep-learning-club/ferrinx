@@ -1,7 +1,7 @@
 //
 #[path = "common/mod.rs"] mod common;
 
-use ferrinx_common::UserRole;
+use ferrinx_common::{Tensor, UserRole};
 use serde_json::json;
 use futures::future::join_all;
 
@@ -178,14 +178,17 @@ async fn test_e2e_sync_inference_workflow() {
 
     let client = reqwest::Client::new();
 
+    let input_shape = vec![1i64, 1, 64, 64];
     let input_data: Vec<f32> = vec![0.0; 1 * 1 * 64 * 64];
+    let tensor = Tensor::new_f32(input_shape, &input_data);
+
     let infer_response = client
         .post(format!("http://{}/api/v1/inference/sync", addr))
         .bearer_auth(&raw_key)
         .json(&json!({
             "model_id": model.id.to_string(),
             "inputs": {
-                "input": input_data
+                "input": serde_json::to_value(&tensor).unwrap()
             }
         }))
         .send()
@@ -445,13 +448,16 @@ async fn test_e2e_complete_workflow() {
 
     let model_id = model["data"]["id"].as_str().unwrap();
 
+    let input_shape = vec![1i64, 1, 64, 64];
     let input_data: Vec<f32> = vec![0.0; 1 * 1 * 64 * 64];
+    let tensor = Tensor::new_f32(input_shape, &input_data);
+
     let infer: serde_json::Value = client
         .post(format!("http://{}/api/v1/inference/sync", addr))
         .bearer_auth(admin_key)
         .json(&json!({
             "model_id": model_id,
-            "inputs": {"input": input_data}
+            "inputs": {"input": serde_json::to_value(&tensor).unwrap()}
         }))
         .send()
         .await

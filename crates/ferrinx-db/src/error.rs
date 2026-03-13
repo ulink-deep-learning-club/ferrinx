@@ -25,6 +25,18 @@ pub enum DbError {
 
     #[error("Invalid input: {0}")]
     InvalidInput(String),
+
+    #[error("Data parsing error: {0}")]
+    DataParsingError(String),
+
+    #[error("Invalid UUID format: {0}")]
+    InvalidUuid(String),
+
+    #[error("Invalid datetime format: {0}")]
+    InvalidDateTime(String),
+
+    #[error("Invalid status value: {0}")]
+    InvalidStatus(String),
 }
 
 pub type Result<T> = std::result::Result<T, DbError>;

@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::error::{CoreError, Result};
-use ferrinx_common::{ExecutionProvider, InferenceInput, InferenceOutput, OnnxConfig};
+use ferrinx_common::{ExecutionProvider, InferenceInput, InferenceOutput, OnnxConfig, Tensor as FerrinxTensor, TensorDataType};
 
 pub type CacheEvictCallback = Arc<dyn Fn(Uuid) + Send + Sync>;
 pub type CacheLoadCallback = Arc<dyn Fn(Uuid) + Send + Sync>;
@@ -492,37 +492,129 @@ fn value_to_tensor(
     match value_type {
         ValueType::Tensor { ty, shape, .. } => match ty {
             TensorElementType::Float32 => {
-                let data: Vec<f32> = serde_json::from_value(value)?;
-                let shape_vec: Vec<usize> = shape.iter().map(|d| *d as usize).collect();
-                let expected_len: usize = shape_vec.iter().product();
-                if data.len() != expected_len {
-                    return Err(CoreError::InvalidInput(format!(
-                        "Input size mismatch: expected {}, got {}",
-                        expected_len,
-                        data.len()
-                    )));
-                }
-                let tensor: Tensor<f32> = Tensor::from_array((shape_vec, data.into_boxed_slice()))?;
+                let (data, input_shape) = extract_f32_data(&value, shape)?;
+                let tensor: Tensor<f32> = Tensor::from_array((input_shape, data.into_boxed_slice()))?;
+                Ok(tensor.into())
+            }
+            TensorElementType::Int8 => {
+                let (data, input_shape) = extract_i8_data(&value, shape)?;
+                let tensor: Tensor<i8> = Tensor::from_array((input_shape, data.into_boxed_slice()))?;
                 Ok(tensor.into())
             }
             TensorElementType::Int64 => {
-                let data: Vec<i64> = serde_json::from_value(value)?;
-                let shape_vec: Vec<usize> = shape.iter().map(|d| *d as usize).collect();
-                let expected_len: usize = shape_vec.iter().product();
-                if data.len() != expected_len {
-                    return Err(CoreError::InvalidInput(format!(
-                        "Input size mismatch: expected {}, got {}",
-                        expected_len,
-                        data.len()
-                    )));
-                }
-                let tensor: Tensor<i64> = Tensor::from_array((shape_vec, data.into_boxed_slice()))?;
+                let (data, input_shape) = extract_i64_data(&value, shape)?;
+                let tensor: Tensor<i64> = Tensor::from_array((input_shape, data.into_boxed_slice()))?;
                 Ok(tensor.into())
             }
             _ => Err(CoreError::UnsupportedTensorType),
         },
         _ => Err(CoreError::UnsupportedInputType),
     }
+}
+
+fn extract_f32_data(value: &serde_json::Value, expected_shape: &[i64]) -> Result<(Vec<f32>, Vec<usize>)> {
+    let tensor: FerrinxTensor = serde_json::from_value(value.clone())
+        .map_err(|e| CoreError::InvalidInput(format!("Expected Tensor format, got: {}", e)))?;
+    
+    if tensor.dtype != TensorDataType::Float32 {
+        return Err(CoreError::InvalidInput(format!(
+            "Expected float32 tensor, got {:?}",
+            tensor.dtype
+        )));
+    }
+    
+    let data = tensor.decode_f32()
+        .map_err(|e| CoreError::InvalidInput(format!("Failed to decode tensor: {}", e)))?;
+    
+    let expected_shape_usize: Vec<usize> = expected_shape.iter().map(|&d| d as usize).collect();
+    let tensor_shape_usize: Vec<usize> = tensor.shape.iter().map(|&d| d as usize).collect();
+    
+    if tensor_shape_usize != expected_shape_usize {
+        return Err(CoreError::InvalidInput(format!(
+            "Shape mismatch: model expects {:?}, but tensor has {:?}",
+            expected_shape_usize, tensor_shape_usize
+        )));
+    }
+    
+    let expected_len: usize = expected_shape_usize.iter().product();
+    if data.len() != expected_len {
+        return Err(CoreError::InvalidInput(format!(
+            "Data size mismatch: expected {} elements for shape {:?}, got {}",
+            expected_len, expected_shape_usize, data.len()
+        )));
+    }
+    
+    Ok((data, expected_shape_usize))
+}
+
+fn extract_i8_data(value: &serde_json::Value, expected_shape: &[i64]) -> Result<(Vec<i8>, Vec<usize>)> {
+    let tensor: FerrinxTensor = serde_json::from_value(value.clone())
+        .map_err(|e| CoreError::InvalidInput(format!("Expected Tensor format, got: {}", e)))?;
+    
+    if tensor.dtype != TensorDataType::Int8 {
+        return Err(CoreError::InvalidInput(format!(
+            "Expected int8 tensor, got {:?}",
+            tensor.dtype
+        )));
+    }
+    
+    let data = tensor.decode_i8()
+        .map_err(|e| CoreError::InvalidInput(format!("Failed to decode tensor: {}", e)))?;
+    
+    let expected_shape_usize: Vec<usize> = expected_shape.iter().map(|&d| d as usize).collect();
+    let tensor_shape_usize: Vec<usize> = tensor.shape.iter().map(|&d| d as usize).collect();
+    
+    if tensor_shape_usize != expected_shape_usize {
+        return Err(CoreError::InvalidInput(format!(
+            "Shape mismatch: model expects {:?}, but tensor has {:?}",
+            expected_shape_usize, tensor_shape_usize
+        )));
+    }
+    
+    let expected_len: usize = expected_shape_usize.iter().product();
+    if data.len() != expected_len {
+        return Err(CoreError::InvalidInput(format!(
+            "Data size mismatch: expected {} elements for shape {:?}, got {}",
+            expected_len, expected_shape_usize, data.len()
+        )));
+    }
+    
+    Ok((data, expected_shape_usize))
+}
+
+fn extract_i64_data(value: &serde_json::Value, expected_shape: &[i64]) -> Result<(Vec<i64>, Vec<usize>)> {
+    let tensor: FerrinxTensor = serde_json::from_value(value.clone())
+        .map_err(|e| CoreError::InvalidInput(format!("Expected Tensor format, got: {}", e)))?;
+    
+    if tensor.dtype != TensorDataType::Int64 {
+        return Err(CoreError::InvalidInput(format!(
+            "Expected int64 tensor, got {:?}",
+            tensor.dtype
+        )));
+    }
+    
+    let data = tensor.decode_i64()
+        .map_err(|e| CoreError::InvalidInput(format!("Failed to decode tensor: {}", e)))?;
+    
+    let expected_shape_usize: Vec<usize> = expected_shape.iter().map(|&d| d as usize).collect();
+    let tensor_shape_usize: Vec<usize> = tensor.shape.iter().map(|&d| d as usize).collect();
+    
+    if tensor_shape_usize != expected_shape_usize {
+        return Err(CoreError::InvalidInput(format!(
+            "Shape mismatch: model expects {:?}, but tensor has {:?}",
+            expected_shape_usize, tensor_shape_usize
+        )));
+    }
+    
+    let expected_len: usize = expected_shape_usize.iter().product();
+    if data.len() != expected_len {
+        return Err(CoreError::InvalidInput(format!(
+            "Data size mismatch: expected {} elements for shape {:?}, got {}",
+            expected_len, expected_shape_usize, data.len()
+        )));
+    }
+    
+    Ok((data, expected_shape_usize))
 }
 
 fn parse_outputs(
@@ -540,16 +632,27 @@ fn parse_outputs(
 
 fn tensor_to_json(value: &ort::value::Value) -> Result<serde_json::Value> {
     if let Ok(tensor) = value.try_extract_tensor::<f32>() {
+        let shape: Vec<i64> = tensor.0.iter().map(|&d| d as i64).collect();
         let data: Vec<f32> = tensor.1.to_vec();
-        return Ok(serde_json::to_value(data)?);
+        let ferrinx_tensor = FerrinxTensor::new_f32(shape, &data);
+        return Ok(serde_json::to_value(ferrinx_tensor)?);
+    }
+
+    if let Ok(tensor) = value.try_extract_tensor::<i8>() {
+        let shape: Vec<i64> = tensor.0.iter().map(|&d| d as i64).collect();
+        let data: Vec<i8> = tensor.1.to_vec();
+        let ferrinx_tensor = FerrinxTensor::new_i8(shape, &data);
+        return Ok(serde_json::to_value(ferrinx_tensor)?);
     }
 
     if let Ok(tensor) = value.try_extract_tensor::<i64>() {
+        let shape: Vec<i64> = tensor.0.iter().map(|&d| d as i64).collect();
         let data: Vec<i64> = tensor.1.to_vec();
-        return Ok(serde_json::to_value(data)?);
+        let ferrinx_tensor = FerrinxTensor::new_i64(shape, &data);
+        return Ok(serde_json::to_value(ferrinx_tensor)?);
     }
 
-    Ok(serde_json::Value::Null)
+    Err(CoreError::UnsupportedTensorType)
 }
 
 #[cfg(test)]

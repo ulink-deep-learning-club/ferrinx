@@ -75,7 +75,6 @@ fn is_public_path(path: &str) -> bool {
             | "/api/v1/ready"
             | "/api/v1/bootstrap"
             | "/api/v1/auth/login"
-            | "/api/v1/metrics"
     )
 }
 
@@ -130,7 +129,7 @@ mod tests {
         assert!(is_public_path("/api/v1/ready"));
         assert!(is_public_path("/api/v1/bootstrap"));
         assert!(is_public_path("/api/v1/auth/login"));
-        assert!(is_public_path("/api/v1/metrics"));
+        assert!(!is_public_path("/api/v1/metrics"));
         assert!(!is_public_path("/api/v1/models"));
         assert!(!is_public_path("/api/v1/inference"));
         assert!(!is_public_path("/api/v1/admin/users"));

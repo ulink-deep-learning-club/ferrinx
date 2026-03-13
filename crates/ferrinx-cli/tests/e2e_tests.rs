@@ -7,7 +7,7 @@ use tempfile::NamedTempFile;
 
 mod common;
 use common::{hanzi_tiny_model_path, models_dir, TestApp};
-use ferrinx_common::UserRole;
+use ferrinx_common::{Tensor, UserRole};
 
 fn ferrinx_binary() -> Command {
     Command::cargo_bin("ferrinx").unwrap()
@@ -210,8 +210,11 @@ async fn test_cli_inference_sync() {
     let config_file = create_temp_config(&format!("http://{}", addr), Some(&user_key));
 
     let mut input_file = NamedTempFile::new().unwrap();
+    let input_shape = vec![1i64, 1, 64, 64];
+    let input_vec = vec![0.0f32; 1 * 1 * 64 * 64];
+    let tensor = Tensor::new_f32(input_shape, &input_vec);
     let input_data = serde_json::json!({
-        "import/Placeholder:0": vec![0.0f32; 1 * 1 * 64 * 64]
+        "import/Placeholder:0": serde_json::to_value(&tensor).unwrap()
     });
     writeln!(input_file, "{}", serde_json::to_string(&input_data).unwrap()).unwrap();
 

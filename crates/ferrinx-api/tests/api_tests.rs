@@ -1,7 +1,7 @@
 //
 #[path = "common/mod.rs"] mod common;
 
-use ferrinx_common::UserRole;
+use ferrinx_common::{Tensor, UserRole};
 use serde_json::json;
 
 use common::TestApp;
@@ -256,7 +256,9 @@ async fn test_sync_inference() {
 
     // Hanzi-tiny expects a 1x1x64x64 tensor (batch, channels, height, width)
     // Input name from ONNX model is "input"
+    let input_shape = vec![1i64, 1, 64, 64];
     let input_data: Vec<f32> = vec![0.0; 1 * 1 * 64 * 64];
+    let tensor = Tensor::new_f32(input_shape, &input_data);
 
     let client = reqwest::Client::new();
     let response = client
@@ -265,7 +267,7 @@ async fn test_sync_inference() {
         .json(&json!({
             "model_id": model.id.to_string(),
             "inputs": {
-                "input": input_data
+                "input": serde_json::to_value(&tensor).unwrap()
             }
         }))
         .send()
@@ -286,6 +288,11 @@ async fn test_sync_inference_invalid_model() {
     let (_, raw_key) = test_app.db.create_api_key(&user, "infer-key", false).await;
     let (addr, _handle) = test_app.start_server().await;
 
+    // Create a proper Tensor for the invalid model test
+    let input_shape = vec![3i64];
+    let input_data: Vec<f32> = vec![1.0, 2.0, 3.0];
+    let tensor = Tensor::new_f32(input_shape, &input_data);
+
     let client = reqwest::Client::new();
     let response = client
         .post(format!("http://{}/api/v1/inference/sync", addr))
@@ -293,7 +300,7 @@ async fn test_sync_inference_invalid_model() {
         .json(&json!({
             "model_id": "00000000-0000-0000-0000-000000000000",
             "inputs": {
-                "input": [1.0, 2.0, 3.0]
+                "input": serde_json::to_value(&tensor).unwrap()
             }
         }))
         .send()

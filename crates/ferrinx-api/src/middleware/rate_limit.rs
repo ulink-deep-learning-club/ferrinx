@@ -8,14 +8,13 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use std::collections::HashMap;
+use dashmap::DashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use crate::{error::ApiError, routes::AppState};
 
 pub struct RateLimiter {
-    limits: Arc<RwLock<HashMap<String, RateLimitEntry>>>,
+    limits: Arc<DashMap<String, RateLimitEntry>>,
     #[allow(dead_code)]
     default_limit: u32,
     #[allow(dead_code)]
@@ -30,7 +29,7 @@ struct RateLimitEntry {
 impl RateLimiter {
     pub fn new(default_limit: u32, cleanup_interval_secs: u64) -> Self {
         Self {
-            limits: Arc::new(RwLock::new(HashMap::new())),
+            limits: Arc::new(DashMap::new()),
             default_limit,
             cleanup_interval: Duration::from_secs(cleanup_interval_secs),
         }
@@ -40,27 +39,20 @@ impl RateLimiter {
         let now = Instant::now();
         let minute_ago = now - Duration::from_secs(60);
 
-        {
-            let mut limits = self.limits.write().await;
-            limits.retain(|_, entry| entry.reset_at > minute_ago);
-        }
+        self.limits.retain(|_, entry| entry.reset_at > minute_ago);
 
-        let limits = self.limits.read().await;
-        if let Some(entry) = limits.get(key) {
-            let count = entry.count.load(Ordering::Relaxed);
-            if count >= limit as u64 {
-                return Ok(false);
-            }
-        }
-        drop(limits);
-
-        let mut limits = self.limits.write().await;
-        let entry = limits.entry(key.to_string()).or_insert(RateLimitEntry {
+        let entry = self.limits.entry(key.to_string()).or_insert(RateLimitEntry {
             count: AtomicU64::new(0),
             reset_at: now + Duration::from_secs(60),
         });
 
-        entry.count.fetch_add(1, Ordering::Relaxed);
+        let new_count = entry.count.fetch_add(1, Ordering::SeqCst) + 1;
+        
+        if new_count > limit as u64 {
+            entry.count.fetch_sub(1, Ordering::SeqCst);
+            return Ok(false);
+        }
+        
         Ok(true)
     }
 }
@@ -82,11 +74,9 @@ pub async fn rate_limit_middleware(
     let key = if let Some(info) = api_key_info {
         format!("rate_limit:{}", info.id)
     } else {
-        let ip = req
-            .headers()
-            .get("X-Real-IP")
-            .and_then(|h| h.to_str().ok())
-            .unwrap_or("unknown");
+        let ip = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|info| info.ip().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
         format!("rate_limit:ip:{}", ip)
     };
 

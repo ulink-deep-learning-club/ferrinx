@@ -129,7 +129,36 @@ ferrinx-cli     ← (仅依赖 common，通过 HTTP 与 API 通信)
 
 ## 关键设计决策
 
-### 1. 双模式架构
+### 1. Tensor 数据格式
+
+**设计原则**: 所有推理输入/输出统一使用显式 Tensor 格式，替代隐式的嵌套 JSON 数组。
+
+**Tensor 结构**:
+```json
+{
+  "dtype": "float32",  // float32 | int8 | int64
+  "shape": [1, 3, 224, 224],
+  "data": "<base64-encoded-binary>"
+}
+```
+
+**设计优势**:
+- **显式形状** : 不再有隐式 shape 推断错误
+- **类型安全** : dtype 显式声明，避免类型混淆
+- **二进制效率** : base64 编码比 JSON 数组紧凑 30-50%
+- **严格验证** : 推理引擎强制 shape 匹配，提前发现错误
+- 
+```json
+{
+  "input": {
+    "dtype": "float32",
+    "shape": [1, 2, 2],
+    "data": "AACAPwAAAEAAAEBA"
+  }
+}
+```
+
+### 2. 双模式架构
 
 - **简化模式（无 Redis）**：
   - API Server 独立运行，内置 InferenceEngine
@@ -143,7 +172,7 @@ ferrinx-cli     ← (仅依赖 common，通过 HTTP 与 API 通信)
   - 异步任务路由到最优 Worker
   - 适合：生产环境、需要水平扩展场景
 
-### 2. 同步 vs 异步推理路径
+### 3. 同步 vs 异步推理路径
 
 | 特性 | 同步推理 | 异步推理 |
 |------|---------|---------|
@@ -154,7 +183,7 @@ ferrinx-cli     ← (仅依赖 common，通过 HTTP 与 API 通信)
 | 延迟 | < 100ms | 可变 |
 | 适用场景 | 快速响应 | 大模型、批处理 |
 
-### 3. 模型路由策略（仅异步推理）
+### 4. 模型路由策略（仅异步推理）
 
 Worker 上报模型状态到 Redis，API 路由任务时按优先级选择：
 
@@ -164,25 +193,25 @@ Worker 上报模型状态到 Redis，API 路由任务时按优先级选择：
 优先级 3: 无 Worker 有模型 → 返回错误
 ```
 
-### 4. API Key 不存储明文
+### 5. API Key 不存储明文
 
 - 数据库存储 SHA-256 哈希
 - Redis 缓存验证结果（有 Redis 时）
 - 数据库降级保证可用性（无 Redis 时）
 
-### 3. PostgreSQL 和 SQLite 双后端
+### 6. PostgreSQL 和 SQLite 双后端
 
 - PostgreSQL：生产环境
 - SQLite：开发/测试环境
 - 业务代码依赖 trait，不依赖具体实现
 
-### 4. 模块化设计
+### 7. 模块化设计
 
 - 轻量级 CLI（不依赖 core/db）
 - 独立 Worker 进程
 - 可水平扩展
 
-### 5. 优雅降级
+### 8. 优雅降级
 
 **无 Redis 时（简化模式）**：
 - ✅ 同步推理可用（API 本地执行）

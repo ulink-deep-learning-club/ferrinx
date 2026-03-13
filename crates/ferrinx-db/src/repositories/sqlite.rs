@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use async_trait::async_trait;
 use chrono::Utc;
 use ferrinx_common::*;
@@ -59,7 +61,7 @@ impl ModelRepository for SqliteModelRepository {
             .fetch_optional(&self.pool)
             .await?;
 
-        Ok(result.map(|r| r.into()))
+        Ok(result.map(|r| r.try_into()).transpose()?)
     }
 
     async fn find_by_name_version(&self, name: &str, version: &str) -> Result<Option<ModelInfo>> {
@@ -71,7 +73,7 @@ impl ModelRepository for SqliteModelRepository {
             .fetch_optional(&self.pool)
             .await?;
 
-        Ok(result.map(|r| r.into()))
+        Ok(result.map(|r| r.try_into()).transpose()?)
     }
 
     async fn list(&self, filter: &ModelFilter) -> Result<Vec<ModelInfo>> {
@@ -108,7 +110,7 @@ impl ModelRepository for SqliteModelRepository {
 
         let results: Vec<ModelRow> = sql_query.fetch_all(&self.pool).await?;
 
-        Ok(results.into_iter().map(|r| r.into()).collect())
+        results.into_iter().map(|r| r.try_into()).collect()
     }
 
     async fn delete(&self, id: &Uuid) -> Result<bool> {
@@ -148,25 +150,28 @@ struct ModelRow {
     updated_at: String,
 }
 
-impl From<ModelRow> for ModelInfo {
-    fn from(row: ModelRow) -> Self {
-        Self {
-            id: Uuid::parse_str(&row.id).unwrap_or_default(),
+impl TryFrom<ModelRow> for ModelInfo {
+    type Error = crate::error::DbError;
+
+    fn try_from(row: ModelRow) -> crate::error::Result<Self> {
+        Ok(Self {
+            id: Uuid::parse_str(&row.id)
+                .map_err(|e| crate::error::DbError::InvalidUuid(format!("{}: {}", row.id, e)))?,
             name: row.name,
             version: row.version,
             file_path: row.file_path,
             file_size: row.file_size,
             storage_backend: row.storage_backend,
-            input_shapes: row.input_shapes.and_then(|s| serde_json::from_str(&s).ok()),
-            output_shapes: row.output_shapes.and_then(|s| serde_json::from_str(&s).ok()),
-            metadata: row.metadata.and_then(|s| serde_json::from_str(&s).ok()),
+            input_shapes: row.input_shapes.map(|s| serde_json::from_str(&s)).transpose()?,
+            output_shapes: row.output_shapes.map(|s| serde_json::from_str(&s)).transpose()?,
+            metadata: row.metadata.map(|s| serde_json::from_str(&s)).transpose()?,
             created_at: chrono::DateTime::parse_from_rfc3339(&row.created_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
+                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("created_at {}: {}", row.created_at, e)))?,
             updated_at: chrono::DateTime::parse_from_rfc3339(&row.updated_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
-        }
+                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("updated_at {}: {}", row.updated_at, e)))?,
+        })
     }
 }
 
@@ -218,7 +223,7 @@ impl TaskRepository for SqliteTaskRepository {
             .fetch_optional(&self.pool)
             .await?;
 
-        Ok(result.map(|r| r.into()))
+        Ok(result.map(|r| r.try_into()).transpose()?)
     }
 
     async fn update_status(&self, id: &Uuid, status: TaskStatus) -> Result<()> {
@@ -310,7 +315,7 @@ impl TaskRepository for SqliteTaskRepository {
 
         let results: Vec<TaskRow> = sql_query.fetch_all(&self.pool).await?;
 
-        Ok(results.into_iter().map(|r| r.into()).collect())
+        results.into_iter().map(|r| r.try_into()).collect()
     }
 
     async fn delete(&self, id: &Uuid) -> Result<bool> {
@@ -391,33 +396,40 @@ struct TaskRow {
     completed_at: Option<String>,
 }
 
-impl From<TaskRow> for InferenceTask {
-    fn from(row: TaskRow) -> Self {
-        Self {
-            id: Uuid::parse_str(&row.id).unwrap_or_default(),
-            model_id: Uuid::parse_str(&row.model_id).unwrap_or_default(),
-            user_id: Uuid::parse_str(&row.user_id).unwrap_or_default(),
-            api_key_id: Uuid::parse_str(&row.api_key_id).unwrap_or_default(),
-            status: TaskStatus::from_str(&row.status).unwrap_or(TaskStatus::Pending),
-            inputs: serde_json::from_str(&row.inputs).unwrap_or(serde_json::Value::Null),
-            outputs: row.outputs.and_then(|s| serde_json::from_str(&s).ok()),
+impl TryFrom<TaskRow> for InferenceTask {
+    type Error = crate::error::DbError;
+
+    fn try_from(row: TaskRow) -> crate::error::Result<Self> {
+        Ok(Self {
+            id: Uuid::parse_str(&row.id)
+                .map_err(|e| crate::error::DbError::InvalidUuid(format!("task.id {}: {}", row.id, e)))?,
+            model_id: Uuid::parse_str(&row.model_id)
+                .map_err(|e| crate::error::DbError::InvalidUuid(format!("task.model_id {}: {}", row.model_id, e)))?,
+            user_id: Uuid::parse_str(&row.user_id)
+                .map_err(|e| crate::error::DbError::InvalidUuid(format!("task.user_id {}: {}", row.user_id, e)))?,
+            api_key_id: Uuid::parse_str(&row.api_key_id)
+                .map_err(|e| crate::error::DbError::InvalidUuid(format!("task.api_key_id {}: {}", row.api_key_id, e)))?,
+            status: TaskStatus::from_str(&row.status)
+                .ok_or_else(|| crate::error::DbError::InvalidStatus(row.status.clone()))?,
+            inputs: serde_json::from_str(&row.inputs)?,
+            outputs: row.outputs.map(|s| serde_json::from_str(&s)).transpose()?,
             error_message: row.error_message,
             priority: row.priority,
             retry_count: row.retry_count,
             created_at: chrono::DateTime::parse_from_rfc3339(&row.created_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
-            started_at: row.started_at.and_then(|t| {
+                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("task.created_at {}: {}", row.created_at, e)))?,
+            started_at: row.started_at.map(|t| {
                 chrono::DateTime::parse_from_rfc3339(&t)
                     .map(|dt| dt.with_timezone(&Utc))
-                    .ok()
-            }),
-            completed_at: row.completed_at.and_then(|t| {
+                    .map_err(|e| crate::error::DbError::InvalidDateTime(format!("task.started_at {}: {}", t, e)))
+            }).transpose()?,
+            completed_at: row.completed_at.map(|t| {
                 chrono::DateTime::parse_from_rfc3339(&t)
                     .map(|dt| dt.with_timezone(&Utc))
-                    .ok()
-            }),
-        }
+                    .map_err(|e| crate::error::DbError::InvalidDateTime(format!("task.completed_at {}: {}", t, e)))
+            }).transpose()?,
+        })
     }
 }
 
@@ -473,7 +485,7 @@ impl ApiKeyRepository for SqliteApiKeyRepository {
             .fetch_optional(&self.pool)
             .await?;
 
-        Ok(result.map(|r| r.into()))
+        Ok(result.map(|r| r.try_into()).transpose()?)
     }
 
     async fn find_by_id(&self, id: &Uuid) -> Result<Option<ApiKeyRecord>> {
@@ -484,7 +496,7 @@ impl ApiKeyRepository for SqliteApiKeyRepository {
             .fetch_optional(&self.pool)
             .await?;
 
-        Ok(result.map(|r| r.into()))
+        Ok(result.map(|r| r.try_into()).transpose()?)
     }
 
     async fn find_by_user(&self, user_id: &Uuid) -> Result<Vec<ApiKeyRecord>> {
@@ -495,7 +507,7 @@ impl ApiKeyRepository for SqliteApiKeyRepository {
             .fetch_all(&self.pool)
             .await?;
 
-        Ok(results.into_iter().map(|r| r.into()).collect())
+        results.into_iter().map(|r| r.try_into()).collect()
     }
 
     async fn find_temporary_by_user(&self, user_id: &Uuid) -> Result<Vec<ApiKeyRecord>> {
@@ -507,7 +519,7 @@ impl ApiKeyRepository for SqliteApiKeyRepository {
             .fetch_all(&self.pool)
             .await?;
 
-        Ok(results.into_iter().map(|r| r.into()).collect())
+        results.into_iter().map(|r| r.try_into()).collect()
     }
 
     async fn update_last_used(&self, id: &Uuid) -> Result<()> {
@@ -594,33 +606,37 @@ struct ApiKeyRow {
     updated_at: String,
 }
 
-impl From<ApiKeyRow> for ApiKeyRecord {
-    fn from(row: ApiKeyRow) -> Self {
-        Self {
-            id: Uuid::parse_str(&row.id).unwrap_or_default(),
-            user_id: Uuid::parse_str(&row.user_id).unwrap_or_default(),
+impl TryFrom<ApiKeyRow> for ApiKeyRecord {
+    type Error = crate::error::DbError;
+
+    fn try_from(row: ApiKeyRow) -> crate::error::Result<Self> {
+        Ok(Self {
+            id: Uuid::parse_str(&row.id)
+                .map_err(|e| crate::error::DbError::InvalidUuid(format!("api_key.id {}: {}", row.id, e)))?,
+            user_id: Uuid::parse_str(&row.user_id)
+                .map_err(|e| crate::error::DbError::InvalidUuid(format!("api_key.user_id {}: {}", row.user_id, e)))?,
             key_hash: row.key_hash,
             name: row.name,
-            permissions: serde_json::from_str(&row.permissions).unwrap_or_default(),
+            permissions: serde_json::from_str(&row.permissions)?,
             is_active: row.is_active,
             is_temporary: row.is_temporary,
-            last_used_at: row.last_used_at.and_then(|t| {
+            last_used_at: row.last_used_at.map(|t| {
                 chrono::DateTime::parse_from_rfc3339(&t)
                     .map(|dt| dt.with_timezone(&Utc))
-                    .ok()
-            }),
-            expires_at: row.expires_at.and_then(|t| {
+                    .map_err(|e| crate::error::DbError::InvalidDateTime(format!("api_key.last_used_at {}: {}", t, e)))
+            }).transpose()?,
+            expires_at: row.expires_at.map(|t| {
                 chrono::DateTime::parse_from_rfc3339(&t)
                     .map(|dt| dt.with_timezone(&Utc))
-                    .ok()
-            }),
+                    .map_err(|e| crate::error::DbError::InvalidDateTime(format!("api_key.expires_at {}: {}", t, e)))
+            }).transpose()?,
             created_at: chrono::DateTime::parse_from_rfc3339(&row.created_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
+                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("api_key.created_at {}: {}", row.created_at, e)))?,
             updated_at: chrono::DateTime::parse_from_rfc3339(&row.updated_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
-        }
+                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("api_key.updated_at {}: {}", row.updated_at, e)))?,
+        })
     }
 }
 
@@ -674,7 +690,7 @@ impl UserRepository for SqliteUserRepository {
             .fetch_optional(&self.pool)
             .await?;
 
-        Ok(result.map(|r| r.into()))
+        Ok(result.map(|r| r.try_into()).transpose()?)
     }
 
     async fn find_by_username(&self, username: &str) -> Result<Option<User>> {
@@ -685,7 +701,7 @@ impl UserRepository for SqliteUserRepository {
             .fetch_optional(&self.pool)
             .await?;
 
-        Ok(result.map(|r| r.into()))
+        Ok(result.map(|r| r.try_into()).transpose()?)
     }
 
     async fn delete(&self, id: &Uuid) -> Result<bool> {
@@ -710,7 +726,7 @@ impl UserRepository for SqliteUserRepository {
 
         let results: Vec<UserRow> = sqlx::query_as(&query).fetch_all(&self.pool).await?;
 
-        Ok(results.into_iter().map(|r| r.into()).collect())
+        results.into_iter().map(|r| r.try_into()).collect()
     }
 
     async fn count(&self) -> Result<u64> {
@@ -790,10 +806,13 @@ struct UserRow {
     updated_at: String,
 }
 
-impl From<UserRow> for User {
-    fn from(row: UserRow) -> Self {
-        Self {
-            id: Uuid::parse_str(&row.id).unwrap_or_default(),
+impl TryFrom<UserRow> for User {
+    type Error = crate::error::DbError;
+
+    fn try_from(row: UserRow) -> crate::error::Result<Self> {
+        Ok(Self {
+            id: Uuid::parse_str(&row.id)
+                .map_err(|e| crate::error::DbError::InvalidUuid(format!("user.id {}: {}", row.id, e)))?,
             username: row.username,
             password_hash: row.password_hash,
             role: match row.role.as_str() {
@@ -803,10 +822,10 @@ impl From<UserRow> for User {
             is_active: row.is_active,
             created_at: chrono::DateTime::parse_from_rfc3339(&row.created_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
+                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("user.created_at {}: {}", row.created_at, e)))?,
             updated_at: chrono::DateTime::parse_from_rfc3339(&row.updated_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(|_| Utc::now()),
-        }
+                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("user.updated_at {}: {}", row.updated_at, e)))?,
+        })
     }
 }

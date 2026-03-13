@@ -381,6 +381,152 @@ pub struct InferenceResult {
     pub outputs: serde_json::Value,
     pub error_message: Option<String>,
 }
+
+/// Tensor 数据类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TensorDataType {
+    Float32,
+    Int8,
+    Int64,
+}
+
+/// 张量结构 - 推理 API 的统一数据格式
+/// 
+/// 用于所有输入/输出的序列化，数据以 base64 编码的二进制形式传输
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Tensor {
+    /// 数据类型: float32, int8, int64
+    pub dtype: TensorDataType,
+    /// 张量形状，如 [1, 3, 224, 224] 表示 batch=1, channel=3, height=224, width=224
+    pub shape: Vec<i64>,
+    /// base64 编码的二进制数据
+    pub data: String,
+}
+
+impl Tensor {
+    /// 创建 Float32 类型的 Tensor
+    pub fn new_f32(shape: Vec<i64>, data: &[f32]) -> Self {
+        let bytes = unsafe {
+            std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 4)
+        };
+        Self {
+            dtype: TensorDataType::Float32,
+            shape,
+            data: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes),
+        }
+    }
+
+    /// 创建 Int8 类型的 Tensor
+    pub fn new_i8(shape: Vec<i64>, data: &[i8]) -> Self {
+        let bytes = unsafe {
+            std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len())
+        };
+        Self {
+            dtype: TensorDataType::Int8,
+            shape,
+            data: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes),
+        }
+    }
+
+    /// 创建 Int64 类型的 Tensor
+    pub fn new_i64(shape: Vec<i64>, data: &[i64]) -> Self {
+        let bytes = unsafe {
+            std::slice::from_raw_parts(data.as_ptr() as *const u8, data.len() * 8)
+        };
+        Self {
+            dtype: TensorDataType::Int64,
+            shape,
+            data: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes),
+        }
+    }
+
+    /// 解码 Float32 数据
+    pub fn decode_f32(&self) -> Result<Vec<f32>, TensorDecodeError> {
+        if self.dtype != TensorDataType::Float32 {
+            return Err(TensorDecodeError::TypeMismatch);
+        }
+        let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &self.data)
+            .map_err(|_| TensorDecodeError::InvalidBase64)?;
+        let expected_len = self.shape.iter().filter(|&&d| d > 0).product::<i64>() as usize;
+        if bytes.len() != expected_len * 4 {
+            return Err(TensorDecodeError::SizeMismatch);
+        }
+        let data = unsafe {
+            std::slice::from_raw_parts(bytes.as_ptr() as *const f32, expected_len).to_vec()
+        };
+        Ok(data)
+    }
+
+    /// 从 ndarray 创建 Tensor
+    pub fn from_array_f32(array: &ndarray::ArrayD<f32>) -> Self {
+        let shape: Vec<i64> = array.shape().iter().map(|&d| d as i64).collect();
+        let data: Vec<f32> = array.iter().copied().collect();
+        Self::new_f32(shape, &data)
+    }
+
+    /// 转换为 ndarray
+    pub fn to_array_f32(&self) -> Result<ndarray::ArrayD<f32>, TensorDecodeError> {
+        let data = self.decode_f32()?;
+        let shape: Vec<usize> = self.shape.iter().map(|&d| d as usize).collect();
+        ndarray::ArrayD::from_shape_vec(ndarray::IxDyn(&shape), data)
+            .map_err(|_| TensorDecodeError::SizeMismatch)
+    }
+
+    /// 添加维度 (unsqueeze)
+    pub fn unsqueeze(&self, axes: &[usize]) -> Result<Self, TensorDecodeError> {
+        // 实现细节...
+        todo!()
+    }
+
+    /// 移除维度 (squeeze)
+    pub fn squeeze(&self, axes: &[usize]) -> Result<Self, TensorDecodeError> {
+        // 实现细节...
+        todo!()
+    }
+
+    /// 重塑形状 (reshape)
+    pub fn reshape(&self, new_shape: &[i64]) -> Result<Self, TensorDecodeError> {
+        // 实现细节...
+        todo!()
+    }
+
+    /// 转置 (transpose)
+    pub fn transpose(&self, axes: &[usize]) -> Result<Self, TensorDecodeError> {
+        // 实现细节...
+        todo!()
+    }
+
+    /// 获取元素总数
+    pub fn numel(&self) -> usize {
+        self.shape.iter().filter(|&&d| d > 0).product::<i64>() as usize
+    }
+
+    /// 获取维度数
+    pub fn ndim(&self) -> usize {
+        self.shape.len()
+    }
+}
+
+/// Tensor 解码错误
+#[derive(Debug, Clone)]
+pub enum TensorDecodeError {
+    InvalidBase64,
+    SizeMismatch,
+    TypeMismatch,
+}
+
+impl std::fmt::Display for TensorDecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TensorDecodeError::InvalidBase64 => write!(f, "Invalid base64 encoding"),
+            TensorDecodeError::SizeMismatch => write!(f, "Data size does not match shape"),
+            TensorDecodeError::TypeMismatch => write!(f, "Tensor type mismatch"),
+        }
+    }
+}
+
+impl std::error::Error for TensorDecodeError {}
 ```
 
 ### 2.3 错误码定义

@@ -18,12 +18,18 @@ pub fn embed_labels_in_config(config_content: &str, config_path: &str) -> Result
         .map_err(|e| crate::error::CliError::Config(format!("Failed to serialize config: {}", e)))
 }
 
-/// Extract model file path from config if present
-pub fn get_model_file_from_config(config_content: &str) -> Result<Option<String>> {
+/// Extract model file path from config if present, resolving relative to config directory
+pub fn get_model_file_from_config(config_content: &str, config_path: &str) -> Result<Option<String>> {
     let config: ferrinx_core::model::config::ModelConfig = toml::from_str(config_content)
         .map_err(|e| CliError::Config(format!("Invalid config TOML: {}", e)))?;
 
-    Ok(config.model.as_ref().map(|m| m.file.clone()))
+    if let Some(ref model) = config.model {
+        let base_path = Path::new(config_path).parent().unwrap_or(Path::new("."));
+        let model_path = base_path.join(&model.file);
+        Ok(Some(model_path.to_string_lossy().to_string()))
+    } else {
+        Ok(None)
+    }
 }
 
 /// Resolve model file path from config, making it relative to config directory if needed
@@ -215,7 +221,7 @@ pub async fn handle_model(
             let resolved_server_path = if let Some(path) = server_path {
                 path
             } else if let Some(ref content) = config_content {
-                get_model_file_from_config(content)?
+                get_model_file_from_config(content, config_path.as_ref().unwrap())?
                     .ok_or_else(|| CliError::Config("model.file not specified in config".to_string()))?
             } else {
                 return Err(CliError::Config("Either server_path or --model-config must be provided".to_string()));

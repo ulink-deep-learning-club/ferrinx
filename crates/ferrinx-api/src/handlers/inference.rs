@@ -5,6 +5,7 @@ use axum::{
     Extension, Json,
 };
 use chrono::Utc;
+use ferrinx_common::Tensor as FerrinxTensor;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -205,11 +206,13 @@ pub async fn image_infer(
         .map_err(|e| ApiError::BadRequest(format!("Expected tensor after preprocessing: {}", e)))?;
 
     let input_name = input_config.name.clone();
+    let shape: Vec<i64> = tensor.shape().iter().map(|&d| d as i64).collect();
     let flat_data: Vec<f32> = tensor.iter().cloned().collect();
+    let tensor_obj = FerrinxTensor::new_f32(shape, &flat_data);
 
     let inputs = HashMap::from([(
         input_name,
-        serde_json::Value::Array(flat_data.into_iter().map(|v| serde_json::json!(v)).collect()),
+        serde_json::to_value(&tensor_obj)?,
     )]);
 
     let input = ferrinx_common::InferenceInput { inputs };
@@ -222,8 +225,13 @@ pub async fn image_infer(
             let output_data = output.outputs.get(&output_name)
                 .ok_or_else(|| ApiError::BadRequest(format!("Output {} not found", output_name)))?;
 
-            let tensor_data: Vec<f32> = serde_json::from_value(output_data.clone())
-                .map_err(|e| ApiError::BadRequest(format!("Invalid output format: {}", e)))?;
+            let tensor_data = if let Ok(tensor) = serde_json::from_value::<FerrinxTensor>(output_data.clone()) {
+                tensor.decode_f32()
+                    .map_err(|e| ApiError::BadRequest(format!("Failed to decode tensor: {}", e)))?
+            } else {
+                serde_json::from_value(output_data.clone())
+                    .map_err(|e| ApiError::BadRequest(format!("Invalid output format: {}", e)))?
+            };
 
             let tensor = ndarray::ArrayD::from_shape_vec(
                 ndarray::IxDyn(&[tensor_data.len()]),

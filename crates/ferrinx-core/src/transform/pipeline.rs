@@ -1,4 +1,5 @@
 use crate::model::config::{LabelMapping, PostprocessOp, PreprocessOp};
+use ferrinx_common::Tensor;
 use image::GenericImageView;
 use ndarray::{ArrayD, IxDyn};
 use serde::{Deserialize, Serialize};
@@ -510,12 +511,16 @@ impl TransformData {
     pub fn to_json(&self) -> Result<serde_json::Value, TransformError> {
         match self {
             TransformData::TensorF32(t) => {
+                let shape: Vec<i64> = t.shape().iter().map(|&d| d as i64).collect();
                 let data: Vec<f32> = t.iter().cloned().collect();
-                Ok(serde_json::to_value(data)?)
+                let tensor = Tensor::new_f32(shape, &data);
+                Ok(serde_json::to_value(tensor)?)
             }
             TransformData::TensorI64(t) => {
+                let shape: Vec<i64> = t.shape().iter().map(|&d| d as i64).collect();
                 let data: Vec<i64> = t.iter().cloned().collect();
-                Ok(serde_json::to_value(data)?)
+                let tensor = Tensor::new_i64(shape, &data);
+                Ok(serde_json::to_value(tensor)?)
             }
             TransformData::Json(v) => Ok(v.clone()),
             TransformData::Scalar(s) => Ok(serde_json::to_value(s)?),
@@ -616,7 +621,8 @@ mod tests {
         let tensor = arr1(&[0.0, 1.0, -1.0]).into_dyn();
         let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
 
-        let values: Vec<f32> = serde_json::from_value(result).unwrap();
+        let tensor_obj: Tensor = serde_json::from_value(result).unwrap();
+        let values = tensor_obj.decode_f32().unwrap();
         assert!((values[0] - 0.5).abs() < 1e-6);
         assert!(values[1] > 0.5);
         assert!(values[2] < 0.5);
@@ -629,7 +635,8 @@ mod tests {
         let tensor = arr1(&[0.3, 0.7, 0.5, 0.2]).into_dyn();
         let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
 
-        let values: Vec<f32> = serde_json::from_value(result).unwrap();
+        let tensor_obj: Tensor = serde_json::from_value(result).unwrap();
+        let values = tensor_obj.decode_f32().unwrap();
         assert_eq!(values[0], 0.0);
         assert_eq!(values[1], 0.7);
         assert_eq!(values[2], 0.5);
@@ -643,7 +650,8 @@ mod tests {
         let tensor = arr1(&[1.0, 2.0, 3.0, 4.0, 5.0]).into_dyn();
         let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
 
-        let values: Vec<f32> = serde_json::from_value(result).unwrap();
+        let tensor_obj: Tensor = serde_json::from_value(result).unwrap();
+        let values = tensor_obj.decode_f32().unwrap();
         assert_eq!(values, vec![2.0, 3.0]);
     }
 
@@ -654,7 +662,8 @@ mod tests {
         let tensor = arr1(&[1.0, 2.0, 3.0, 4.0]).into_dyn();
         let result = pipeline.run(TransformData::TensorF32(tensor)).unwrap();
 
-        let values: Vec<f32> = serde_json::from_value(result).unwrap();
+        let tensor_obj: Tensor = serde_json::from_value(result).unwrap();
+        let values = tensor_obj.decode_f32().unwrap();
         assert_eq!(values, vec![3.0, 4.0]);
     }
 
@@ -773,7 +782,8 @@ mod tests {
         let tensor = ArrayD::from_shape_vec(IxDyn(&[3]), vec![1.0, 2.0, 3.0]).unwrap();
         let data = TransformData::TensorF32(tensor);
         let result = data.to_json().unwrap();
-        let values: Vec<f32> = serde_json::from_value(result).unwrap();
+        let tensor_obj: Tensor = serde_json::from_value(result).unwrap();
+        let values = tensor_obj.decode_f32().unwrap();
         assert_eq!(values, vec![1.0, 2.0, 3.0]);
     }
 
@@ -782,7 +792,8 @@ mod tests {
         let tensor = ArrayD::from_shape_vec(IxDyn(&[3]), vec![1i64, 2, 3]).unwrap();
         let data = TransformData::TensorI64(tensor);
         let result = data.to_json().unwrap();
-        let values: Vec<i64> = serde_json::from_value(result).unwrap();
+        let tensor_obj: Tensor = serde_json::from_value(result).unwrap();
+        let values = tensor_obj.decode_i64().unwrap();
         assert_eq!(values, vec![1, 2, 3]);
     }
 

@@ -33,6 +33,8 @@ pub struct CliConfig {
     pub output_format: OutputFormat,
     #[serde(default)]
     pub verify_ssl: bool,
+    #[serde(skip)]
+    pub source_path: Option<PathBuf>,
 }
 
 fn default_api_url() -> String {
@@ -51,6 +53,7 @@ impl Default for CliConfig {
             timeout: default_timeout(),
             output_format: OutputFormat::Table,
             verify_ssl: true,
+            source_path: None,
         }
     }
 }
@@ -68,24 +71,40 @@ impl CliConfig {
             Self::config_path()?
         };
 
-        if config_path.exists() {
+        let config = if config_path.exists() {
             let content = std::fs::read_to_string(&config_path)?;
-            let config: CliConfig = toml::from_str(&content)?;
-            Ok(config)
+            let mut config: CliConfig = toml::from_str(&content)?;
+            config.source_path = Some(config_path);
+            config
         } else {
-            Ok(Self::default())
-        }
+            let mut config = Self::default();
+            config.source_path = Some(config_path);
+            config
+        };
+
+        Ok(config)
     }
 
     pub fn save(&self) -> Result<()> {
-        let config_path = Self::config_path()?;
+        // Only save if the config was loaded from the default location
+        // If loaded from a custom CLI path, do not save to default
+        let default_path = Self::config_path()?;
+        let source_path = match &self.source_path {
+            Some(p) => p,
+            None => &default_path,
+        };
 
-        if let Some(parent) = config_path.parent() {
+        // If source is a custom path (not the default), don't save to default
+        if source_path != &default_path {
+            return Ok(());
+        }
+
+        if let Some(parent) = default_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
         let content = toml::to_string_pretty(self)?;
-        std::fs::write(&config_path, content)?;
+        std::fs::write(&default_path, content)?;
 
         Ok(())
     }
