@@ -100,7 +100,7 @@ impl TestDb {
             .unwrap()
             .parent()
             .unwrap()
-            .join("tests/fixtures/models/lenet.onnx");
+            .join("tests/fixtures/models/hanzi_tiny.onnx");
         
         // Copy to storage if provided, otherwise use source path
         let model_path = if let Some(storage) = storage_path {
@@ -121,7 +121,7 @@ impl TestDb {
             Some(serde_json::json!({
                 "inputs": {
                     "preprocess": [
-                        {"type": "resize", "size": [28, 28]},
+                        {"type": "resize", "size": [64, 64]},
                         {"type": "normalize", "mean": 0.5, "std": 0.5}
                     ]
                 },
@@ -143,10 +143,10 @@ impl TestDb {
             file_size,
             storage_backend: "local".to_string(),
             input_shapes: Some(serde_json::json!([
-                {"name": "import/Placeholder:0", "shape": [1, 1, 28, 28], "element_type": "float32"}
+                {"name": "input", "shape": [1, 1, 64, 64], "element_type": "float32"}
             ])),
             output_shapes: Some(serde_json::json!([
-                {"name": "output", "shape": [1, 10], "element_type": "float32"}
+                {"name": "output", "shape": [1, 994], "element_type": "float32"}
             ])),
             metadata,
             created_at: chrono::Utc::now(),

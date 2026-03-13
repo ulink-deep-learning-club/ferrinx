@@ -1,0 +1,42 @@
+[meta]
+name = "hanzi-tiny"
+version = "1.0"
+description = "Hanzi tiny"
+
+[model]
+file = "hanzi_tiny.onnx"
+labels = "hanzi-tiny-labels.json"
+
+[[inputs]]
+name = "input"
+alias = "image"
+shape = [-1, 1, 64, 64]
+dtype = "float32"
+
+[[inputs.preprocess]]
+type = "resize"
+size = [64, 64]
+
+[[inputs.preprocess]]
+type = "grayscale"
+
+[[inputs.preprocess]]
+type = "to_tensor"
+dtype = "float32"
+scale = 255.0
+
+[[outputs]]
+name = "output"
+alias = "prediction"
+shape = [-1, 994]
+dtype = "float32"
+
+[[outputs.postprocess]]
+type = "softmax"
+
+[[outputs.postprocess]]
+type = "argmax"
+keep_prob = true
+
+[[outputs.postprocess]]
+type = "map_labels"

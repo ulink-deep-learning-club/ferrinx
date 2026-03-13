@@ -1,21 +1,21 @@
 [meta]
-name = "lenet-mnist"
+name = "hanzi-tiny"
 version = "1.0"
-description = "MNIST digit classification model"
+description = "Hanzi tiny"
 
 [model]
-file = "lenet.onnx"
-labels = "lenet_labels.json"
+file = "hanzi_tiny.onnx"
+labels = "hanzi-tiny-labels.json"
 
 [[inputs]]
-name = "import/Placeholder:0"
+name = "input"
 alias = "image"
-shape = [-1, 1, 28, 28]
+shape = [-1, 1, 64, 64]
 dtype = "float32"
 
 [[inputs.preprocess]]
 type = "resize"
-size = [28, 28]
+size = [64, 64]
 
 [[inputs.preprocess]]
 type = "grayscale"
@@ -25,15 +25,10 @@ type = "to_tensor"
 dtype = "float32"
 scale = 255.0
 
-[[inputs.preprocess]]
-type = "normalize"
-mean = [0.1307]
-std = [0.3081]
-
 [[outputs]]
 name = "output"
 alias = "prediction"
-shape = [-1, 10]
+shape = [-1, 994]
 dtype = "float32"
 
 [[outputs.postprocess]]
@@ -42,6 +37,3 @@ type = "softmax"
 [[outputs.postprocess]]
 type = "argmax"
 keep_prob = true
-
-[[outputs.postprocess]]
-type = "map_labels"

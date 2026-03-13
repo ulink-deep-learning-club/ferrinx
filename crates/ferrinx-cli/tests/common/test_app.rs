@@ -30,8 +30,8 @@ pub fn models_dir() -> std::path::PathBuf {
     fixtures_dir().join("models")
 }
 
-pub fn lenet_model_path() -> String {
-    models_dir().join("lenet.onnx").to_string_lossy().to_string()
+pub fn hanzi_tiny_model_path() -> String {
+    models_dir().join("hanzi_tiny.onnx").to_string_lossy().to_string()
 }
 
 pub struct TestApp {
@@ -228,7 +228,7 @@ impl TestDb {
     }
 
     pub async fn create_model(&self, name: &str, version: &str, storage_path: Option<&std::path::Path>) -> ModelInfo {
-        let source_path = std::path::PathBuf::from(lenet_model_path());
+        let source_path = std::path::PathBuf::from(hanzi_tiny_model_path());
         
         // Copy model file to test storage if provided
         let model_path = if let Some(storage) = storage_path {
@@ -248,7 +248,7 @@ impl TestDb {
         let metadata = Some(serde_json::json!({
             "inputs": {
                 "preprocess": [
-                    {"type": "resize", "size": [28, 28]},
+                    {"type": "resize", "size": [64, 64]},
                     {"type": "normalize", "mean": 0.5, "std": 0.5}
                 ]
             },
@@ -267,10 +267,10 @@ impl TestDb {
             file_size,
             storage_backend: "local".to_string(),
             input_shapes: Some(serde_json::json!([
-                {"name": "import/Placeholder:0", "shape": [1, 1, 28, 28], "element_type": "float32"}
+                {"name": "input", "shape": [1, 1, 64, 64], "element_type": "float32"}
             ])),
             output_shapes: Some(serde_json::json!([
-                {"name": "output", "shape": [1, 10], "element_type": "float32"}
+                {"name": "output", "shape": [1, 994], "element_type": "float32"}
             ])),
             metadata,
             created_at: chrono::Utc::now(),

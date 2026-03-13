@@ -6,7 +6,7 @@ use std::io::Write;
 use tempfile::NamedTempFile;
 
 mod common;
-use common::{lenet_model_path, models_dir, TestApp};
+use common::{hanzi_tiny_model_path, models_dir, TestApp};
 use ferrinx_common::UserRole;
 
 fn ferrinx_binary() -> Command {
@@ -122,7 +122,7 @@ async fn test_cli_model_register_and_list() {
     let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
     let (addr, _handle) = test_app.start_server_blocking();
     let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
-    let model_path = lenet_model_path();
+    let model_path = hanzi_tiny_model_path();
 
     ferrinx_binary()
         .arg("--config")
@@ -211,7 +211,7 @@ async fn test_cli_inference_sync() {
 
     let mut input_file = NamedTempFile::new().unwrap();
     let input_data = serde_json::json!({
-        "import/Placeholder:0": vec![0.0f32; 1 * 1 * 28 * 28]
+        "import/Placeholder:0": vec![0.0f32; 1 * 1 * 64 * 64]
     });
     writeln!(input_file, "{}", serde_json::to_string(&input_data).unwrap()).unwrap();
 
@@ -549,8 +549,8 @@ async fn test_cli_model_upload_with_config() {
     let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
     let (addr, _handle) = test_app.start_server_blocking();
     let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
-    let model_path = lenet_model_path();
-    let config_path = models_dir().join("lenet.toml");
+    let model_path = hanzi_tiny_model_path();
+    let config_path = models_dir().join("hanzi-tiny.toml");
 
     ferrinx_binary()
         .arg("--config")
@@ -567,4 +567,326 @@ async fn test_cli_model_upload_with_config() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Model uploaded"));
+}
+
+// Test: Path provided by CLI arguments only (no config)
+#[tokio::test]
+async fn test_cli_model_upload_path_only_from_cli() {
+    let test_app = TestApp::new().await;
+    let admin = test_app.db.create_user("admin", UserRole::Admin).await;
+    let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
+    let (addr, _handle) = test_app.start_server_blocking();
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
+    let model_path = hanzi_tiny_model_path();
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("model")
+        .arg("upload")
+        .arg(&model_path)
+        .arg("--name")
+        .arg("path-only-test")
+        .arg("--version")
+        .arg("1.0.0")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Model uploaded"));
+}
+
+// Test: Path from config, name & version from CLI
+#[tokio::test]
+async fn test_cli_model_upload_path_from_config_name_version_from_cli() {
+    let test_app = TestApp::new().await;
+    let admin = test_app.db.create_user("admin", UserRole::Admin).await;
+    let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
+    let (addr, _handle) = test_app.start_server_blocking();
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
+    let models_dir_path = models_dir();
+
+    // Create minimal config with model.file using absolute path
+    let mut minimal_config = NamedTempFile::new().unwrap();
+    let minimal_config_content = format!(r#"
+[model]
+file = "{}"
+
+[[inputs]]
+name = "input"
+shape = [-1, 1, 64, 64]
+"#, models_dir_path.join("hanzi_tiny.onnx").to_str().unwrap());
+    minimal_config.write_all(minimal_config_content.as_bytes()).unwrap();
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("model")
+        .arg("upload")
+        .arg("--name")
+        .arg("mixed-test")
+        .arg("--version")
+        .arg("2.0.0")
+        .arg("--model-config")
+        .arg(minimal_config.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Model uploaded"));
+}
+
+// Test: All fields from config file (model, name, version)
+#[tokio::test]
+async fn test_cli_model_upload_all_from_config() {
+    let test_app = TestApp::new().await;
+    let admin = test_app.db.create_user("admin", UserRole::Admin).await;
+    let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
+    let (addr, _handle) = test_app.start_server_blocking();
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
+    let models_dir_path = models_dir();
+
+    // Create complete config with all required fields
+    let mut complete_config = NamedTempFile::new().unwrap();
+    let complete_config_content = format!(r#"
+[meta]
+name = "config-only-model"
+version = "3.0.0"
+description = "Test model from config"
+
+[model]
+file = "{}"
+
+[[inputs]]
+name = "input"
+shape = [-1, 1, 64, 64]
+"#, models_dir_path.join("hanzi_tiny.onnx").to_str().unwrap());
+    complete_config.write_all(complete_config_content.as_bytes()).unwrap();
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("model")
+        .arg("upload")
+        .arg("--model-config")
+        .arg(complete_config.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Model uploaded"))
+        .stdout(predicate::str::contains("config-only-model"))
+        .stdout(predicate::str::contains("3.0.0"));
+}
+
+// Test: Register with path from CLI, name & version from CLI
+#[tokio::test]
+async fn test_cli_model_register_all_from_cli() {
+    let test_app = TestApp::new().await;
+    let admin = test_app.db.create_user("admin", UserRole::Admin).await;
+    let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
+    let (addr, _handle) = test_app.start_server_blocking();
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
+    let model_path = hanzi_tiny_model_path();
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("model")
+        .arg("register")
+        .arg(&model_path)
+        .arg("--name")
+        .arg("register-cli-test")
+        .arg("--version")
+        .arg("1.0.0")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Model registered"));
+}
+
+// Test: Register with all fields from config
+#[tokio::test]
+async fn test_cli_model_register_all_from_config() {
+    let test_app = TestApp::new().await;
+    let admin = test_app.db.create_user("admin", UserRole::Admin).await;
+    let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
+    let (addr, _handle) = test_app.start_server_blocking();
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
+    let models_dir_path = models_dir();
+
+    // Create complete config with all required fields
+    let mut complete_config = NamedTempFile::new().unwrap();
+    let complete_config_content = format!(r#"
+[meta]
+name = "register-config-model"
+version = "2.0.0"
+description = "Test register from config"
+
+[model]
+file = "{}"
+
+[[inputs]]
+name = "input"
+shape = [-1, 1, 64, 64]
+"#, models_dir_path.join("hanzi_tiny.onnx").to_str().unwrap());
+    complete_config.write_all(complete_config_content.as_bytes()).unwrap();
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("model")
+        .arg("register")
+        .arg("--model-config")
+        .arg(complete_config.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Model registered"))
+        .stdout(predicate::str::contains("register-config-model"))
+        .stdout(predicate::str::contains("2.0.0"));
+}
+
+// Test: Error when missing model path and no config
+#[tokio::test]
+async fn test_cli_model_upload_missing_path_error() {
+    let test_app = TestApp::new().await;
+    let admin = test_app.db.create_user("admin", UserRole::Admin).await;
+    let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
+    let (addr, _handle) = test_app.start_server_blocking();
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("model")
+        .arg("upload")
+        .arg("--name")
+        .arg("missing-path-test")
+        .arg("--version")
+        .arg("1.0.0")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Either model_path or --model-config must be provided"));
+}
+
+// Test: Error when config missing required fields
+#[tokio::test]
+async fn test_cli_model_upload_config_missing_model_file() {
+    let test_app = TestApp::new().await;
+    let admin = test_app.db.create_user("admin", UserRole::Admin).await;
+    let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
+    let (addr, _handle) = test_app.start_server_blocking();
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
+
+    // Create config without model.file
+    let mut incomplete_config = NamedTempFile::new().unwrap();
+    let incomplete_config_content = r#"
+[meta]
+name = "incomplete-model"
+version = "1.0.0"
+
+[[inputs]]
+name = "input"
+shape = [-1, 1, 64, 64]
+"#;
+    incomplete_config.write_all(incomplete_config_content.as_bytes()).unwrap();
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("model")
+        .arg("upload")
+        .arg("--model-config")
+        .arg(incomplete_config.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("model.file not specified"));
+}
+
+// Test: Error when config missing meta.name
+#[tokio::test]
+async fn test_cli_model_upload_config_missing_name() {
+    let test_app = TestApp::new().await;
+    let admin = test_app.db.create_user("admin", UserRole::Admin).await;
+    let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
+    let (addr, _handle) = test_app.start_server_blocking();
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
+
+    // Create config without meta.name
+    let mut incomplete_config = NamedTempFile::new().unwrap();
+    let incomplete_config_content = r#"
+[meta]
+version = "1.0.0"
+
+[model]
+file = "hanzi_tiny.onnx"
+
+[[inputs]]
+name = "input"
+shape = [-1, 1, 64, 64]
+"#;
+    incomplete_config.write_all(incomplete_config_content.as_bytes()).unwrap();
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("model")
+        .arg("upload")
+        .arg("--model-config")
+        .arg(incomplete_config.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("meta.name not specified"));
+}
+
+// Test: Error when config missing meta.version
+#[tokio::test]
+async fn test_cli_model_upload_config_missing_version() {
+    let test_app = TestApp::new().await;
+    let admin = test_app.db.create_user("admin", UserRole::Admin).await;
+    let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
+    let (addr, _handle) = test_app.start_server_blocking();
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
+
+    // Create config without meta.version
+    let mut incomplete_config = NamedTempFile::new().unwrap();
+    let incomplete_config_content = r#"
+[meta]
+name = "missing-version-model"
+
+[model]
+file = "hanzi_tiny.onnx"
+
+[[inputs]]
+name = "input"
+shape = [-1, 1, 64, 64]
+"#;
+    incomplete_config.write_all(incomplete_config_content.as_bytes()).unwrap();
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("model")
+        .arg("upload")
+        .arg("--model-config")
+        .arg(incomplete_config.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("meta.version not specified"));
+}
+
+// Test: Register error when missing server path and no config
+#[tokio::test]
+async fn test_cli_model_register_missing_path_error() {
+    let test_app = TestApp::new().await;
+    let admin = test_app.db.create_user("admin", UserRole::Admin).await;
+    let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
+    let (addr, _handle) = test_app.start_server_blocking();
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("model")
+        .arg("register")
+        .arg("--name")
+        .arg("missing-path-test")
+        .arg("--version")
+        .arg("1.0.0")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Either server_path or --model-config must be provided"));
 }

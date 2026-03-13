@@ -210,7 +210,7 @@ async fn test_model_registration() {
         .json(&json!({
             "name": "test-model",
             "version": "1.0.0",
-            "file_path": common::lenet_model_path()
+            "file_path": common::hanzi_tiny_model_path()
         }))
         .send()
         .await
@@ -254,9 +254,9 @@ async fn test_sync_inference() {
     let model = test_app.db.create_model_with_storage("test-model", "1.0", test_app.storage_path.path()).await;
     let (addr, _handle) = test_app.start_server().await;
 
-    // LeNet expects a 1x1x28x28 tensor (batch, channels, height, width)
-    // Input name from ONNX model is "import/Placeholder:0"
-    let input_data: Vec<f32> = vec![0.0; 1 * 1 * 28 * 28];
+    // Hanzi-tiny expects a 1x1x64x64 tensor (batch, channels, height, width)
+    // Input name from ONNX model is "input"
+    let input_data: Vec<f32> = vec![0.0; 1 * 1 * 64 * 64];
 
     let client = reqwest::Client::new();
     let response = client
@@ -265,7 +265,7 @@ async fn test_sync_inference() {
         .json(&json!({
             "model_id": model.id.to_string(),
             "inputs": {
-                "import/Placeholder:0": input_data
+                "input": input_data
             }
         }))
         .send()
@@ -442,12 +442,17 @@ async fn test_logout() {
     assert!(response.status().is_success());
 }
 
-fn lenet_config_path() -> String {
-    common::models_dir().join("lenet.toml").to_string_lossy().to_string()
+fn hanzi_config_path() -> String {
+    common::models_dir().join("hanzi-tiny.toml").to_string_lossy().to_string()
+}
+
+// Config without map_labels for basic image inference tests
+fn hanzi_config_no_labels_path() -> String {
+    common::models_dir().join("hanzi-tiny-no-labels.toml").to_string_lossy().to_string()
 }
 
 fn test_image_path() -> String {
-    common::models_dir().join("1.png").to_string_lossy().to_string()
+    common::models_dir().join("#U4e16.jpg").to_string_lossy().to_string()
 }
 
 #[tokio::test]
@@ -457,8 +462,8 @@ async fn test_model_upload_with_config() {
     let (_, raw_key) = test_app.db.create_api_key(&user, "admin-key", true).await;
     let (addr, _handle) = test_app.start_server().await;
 
-    let model_path = common::lenet_model_path();
-    let config_path = lenet_config_path();
+    let model_path = common::hanzi_tiny_model_path();
+    let config_path = hanzi_config_path();
 
     let model_data = std::fs::read(&model_path).expect("Failed to read model file");
     let config_data = std::fs::read_to_string(&config_path).expect("Failed to read config file");
@@ -466,9 +471,9 @@ async fn test_model_upload_with_config() {
     let client = reqwest::Client::new();
 
     let form = reqwest::multipart::Form::new()
-        .text("name", "lenet-with-config")
+        .text("name", "hanzi-with-config")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"))
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
         .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
 
     let response = client
@@ -486,7 +491,7 @@ async fn test_model_upload_with_config() {
     }
     assert!(status.is_success());
 
-    assert_eq!(body["data"]["name"], "lenet-with-config");
+    assert_eq!(body["data"]["name"], "hanzi-with-config");
     assert_eq!(body["data"]["version"], "1.0.0");
     assert!(body["data"]["metadata"].is_object());
     assert!(body["data"]["is_valid"].as_bool().unwrap());
@@ -499,15 +504,15 @@ async fn test_model_upload_without_config() {
     let (_, raw_key) = test_app.db.create_api_key(&user, "admin-key", true).await;
     let (addr, _handle) = test_app.start_server().await;
 
-    let model_path = common::lenet_model_path();
+    let model_path = common::hanzi_tiny_model_path();
     let model_data = std::fs::read(&model_path).expect("Failed to read model file");
 
     let client = reqwest::Client::new();
 
     let form = reqwest::multipart::Form::new()
-        .text("name", "lenet-no-config")
+        .text("name", "hanzi-no-config")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"));
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"));
 
     let response = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -520,7 +525,7 @@ async fn test_model_upload_without_config() {
     assert!(response.status().is_success());
 
     let body: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(body["data"]["name"], "lenet-no-config");
+    assert_eq!(body["data"]["name"], "hanzi-no-config");
     assert!(body["data"]["metadata"].is_null());
     assert!(!body["data"]["is_valid"].as_bool().unwrap());
     assert!(body["data"]["validation_error"].as_str().unwrap().contains("config"));
@@ -533,15 +538,15 @@ async fn test_model_upload_invalid_config() {
     let (_, raw_key) = test_app.db.create_api_key(&user, "admin-key", true).await;
     let (addr, _handle) = test_app.start_server().await;
 
-    let model_path = common::lenet_model_path();
+    let model_path = common::hanzi_tiny_model_path();
     let model_data = std::fs::read(&model_path).expect("Failed to read model file");
 
     let client = reqwest::Client::new();
 
     let form = reqwest::multipart::Form::new()
-        .text("name", "lenet-bad-config")
+        .text("name", "hanzi-bad-config")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"))
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
         .part("config", reqwest::multipart::Part::text("invalid toml [[[").file_name("model.toml"));
 
     let response = client
@@ -561,8 +566,8 @@ async fn test_image_inference_with_config() {
     let user = test_app.db.create_user("imginferuser", UserRole::User).await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "infer-key", false).await;
 
-    let model_path = common::lenet_model_path();
-    let config_path = lenet_config_path();
+    let model_path = common::hanzi_tiny_model_path();
+    let config_path = hanzi_config_no_labels_path();
 
     let model_data = std::fs::read(&model_path).expect("Failed to read model file");
     let config_data = std::fs::read_to_string(&config_path).expect("Failed to read config file");
@@ -575,9 +580,9 @@ async fn test_image_inference_with_config() {
     let client = reqwest::Client::new();
 
     let form = reqwest::multipart::Form::new()
-        .text("name", "lenet-image-test")
+        .text("name", "hanzi-image-test")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data.clone()).file_name("lenet.onnx"))
+        .part("file", reqwest::multipart::Part::bytes(model_data.clone()).file_name("hanzi_tiny.onnx"))
         .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
 
     let upload_response = client
@@ -624,8 +629,8 @@ async fn test_image_inference_by_name_version() {
     let user = test_app.db.create_user("nameinferuser", UserRole::User).await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "infer-key", false).await;
 
-    let model_path = common::lenet_model_path();
-    let config_path = lenet_config_path();
+    let model_path = common::hanzi_tiny_model_path();
+    let config_path = hanzi_config_no_labels_path();
 
     let model_data = std::fs::read(&model_path).expect("Failed to read model file");
     let config_data = std::fs::read_to_string(&config_path).expect("Failed to read config file");
@@ -638,9 +643,9 @@ async fn test_image_inference_by_name_version() {
     let client = reqwest::Client::new();
 
     let form = reqwest::multipart::Form::new()
-        .text("name", "lenet-name-test")
+        .text("name", "hanzi-name-test")
         .text("version", "2.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"))
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
         .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
 
     let upload_response = client
@@ -657,7 +662,7 @@ async fn test_image_inference_by_name_version() {
     let image_data = std::fs::read(&image_path).expect("Failed to read test image");
 
     let infer_form = reqwest::multipart::Form::new()
-        .text("name", "lenet-name-test")
+        .text("name", "hanzi-name-test")
         .text("version", "2.0.0")
         .part("image", reqwest::multipart::Part::bytes(image_data).file_name("test.png"));
 
@@ -762,7 +767,7 @@ async fn test_model_update_config() {
     let user = test_app.db.create_user("updateconfiguser", UserRole::Admin).await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "admin-key", true).await;
 
-    let model_path = common::lenet_model_path();
+    let model_path = common::hanzi_tiny_model_path();
     let model_data = std::fs::read(&model_path).expect("Failed to read model file");
 
     let (addr, _handle) = test_app.start_server().await;
@@ -770,9 +775,9 @@ async fn test_model_update_config() {
     let client = reqwest::Client::new();
 
     let form = reqwest::multipart::Form::new()
-        .text("name", "lenet-update-config")
+        .text("name", "hanzi-update-config")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"));
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"));
 
     let upload_response = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -789,13 +794,13 @@ async fn test_model_update_config() {
 
     let config_toml = r#"
 [[inputs]]
-name = "import/Placeholder:0"
-shape = [-1, 1, 28, 28]
+name = "input"
+shape = [-1, 1, 64, 64]
 dtype = "float32"
 
 [[inputs.preprocess]]
 type = "resize"
-size = [28, 28]
+size = [64, 64]
 
 [[inputs.preprocess]]
 type = "grayscale"
@@ -807,7 +812,7 @@ scale = 255.0
 
 [[outputs]]
 name = "output"
-shape = [-1, 10]
+shape = [-1, 994]
 dtype = "float32"
 
 [[outputs.postprocess]]
@@ -836,7 +841,7 @@ async fn test_delete_invalid_model() {
     let user = test_app.db.create_user("deleteinvaliduser", UserRole::Admin).await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "admin-key", true).await;
 
-    let model_path = common::lenet_model_path();
+    let model_path = common::hanzi_tiny_model_path();
     let model_data = std::fs::read(&model_path).expect("Failed to read model file");
 
     let (addr, _handle) = test_app.start_server().await;
@@ -844,9 +849,9 @@ async fn test_delete_invalid_model() {
     let client = reqwest::Client::new();
 
     let form = reqwest::multipart::Form::new()
-        .text("name", "lenet-invalid-delete")
+        .text("name", "hanzi-invalid-delete")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"));
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"));
 
     let upload_response = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -886,8 +891,8 @@ async fn test_list_models_filter_by_valid() {
     let user = test_app.db.create_user("listvaliduser", UserRole::Admin).await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "admin-key", true).await;
 
-    let model_path = common::lenet_model_path();
-    let config_path = lenet_config_path();
+    let model_path = common::hanzi_tiny_model_path();
+    let config_path = hanzi_config_path();
     let model_data = std::fs::read(&model_path).expect("Failed to read model file");
     let config_data = std::fs::read_to_string(&config_path).expect("Failed to read config file");
 
@@ -898,7 +903,7 @@ async fn test_list_models_filter_by_valid() {
     let form_valid = reqwest::multipart::Form::new()
         .text("name", "valid-model")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data.clone()).file_name("lenet.onnx"))
+        .part("file", reqwest::multipart::Part::bytes(model_data.clone()).file_name("hanzi_tiny.onnx"))
         .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
 
     let upload_valid = client
@@ -913,7 +918,7 @@ async fn test_list_models_filter_by_valid() {
     let form_invalid = reqwest::multipart::Form::new()
         .text("name", "invalid-model")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"));
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"));
 
     let upload_invalid = client
         .post(format!("http://{}/api/v1/models/upload", addr))

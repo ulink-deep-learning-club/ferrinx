@@ -24,8 +24,8 @@ pub fn models_dir() -> std::path::PathBuf {
     fixtures_dir().join("models")
 }
 
-pub fn lenet_model_path() -> String {
-    models_dir().join("lenet.onnx").to_string_lossy().to_string()
+pub fn hanzi_tiny_model_path() -> String {
+    models_dir().join("hanzi_tiny.onnx").to_string_lossy().to_string()
 }
 
 pub struct TestApp {

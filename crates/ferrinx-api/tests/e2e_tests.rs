@@ -127,7 +127,7 @@ async fn test_e2e_model_management() {
         .json(&json!({
             "name": "e2e-test-model",
             "version": "1.0.0",
-            "file_path": common::lenet_model_path()
+            "file_path": common::hanzi_tiny_model_path()
         }))
         .send()
         .await
@@ -178,14 +178,14 @@ async fn test_e2e_sync_inference_workflow() {
 
     let client = reqwest::Client::new();
 
-    let input_data: Vec<f32> = vec![0.0; 1 * 1 * 28 * 28];
+    let input_data: Vec<f32> = vec![0.0; 1 * 1 * 64 * 64];
     let infer_response = client
         .post(format!("http://{}/api/v1/inference/sync", addr))
         .bearer_auth(&raw_key)
         .json(&json!({
             "model_id": model.id.to_string(),
             "inputs": {
-                "import/Placeholder:0": input_data
+                "input": input_data
             }
         }))
         .send()
@@ -421,15 +421,15 @@ async fn test_e2e_complete_workflow() {
 
     let admin_key = bootstrap["data"]["api_key"].as_str().unwrap();
 
-    let model_path = common::lenet_model_path();
-    let config_path = lenet_config_path();
+    let model_path = common::hanzi_tiny_model_path();
+    let config_path = hanzi_config_path();
     let model_data = std::fs::read(&model_path).expect("Failed to read model file");
     let config_data = std::fs::read_to_string(&config_path).expect("Failed to read config file");
 
     let form = reqwest::multipart::Form::new()
         .text("name", "workflow-model")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"))
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
         .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
 
     let model: serde_json::Value = client
@@ -445,13 +445,13 @@ async fn test_e2e_complete_workflow() {
 
     let model_id = model["data"]["id"].as_str().unwrap();
 
-    let input_data: Vec<f32> = vec![0.0; 1 * 1 * 28 * 28];
+    let input_data: Vec<f32> = vec![0.0; 1 * 1 * 64 * 64];
     let infer: serde_json::Value = client
         .post(format!("http://{}/api/v1/inference/sync", addr))
         .bearer_auth(admin_key)
         .json(&json!({
             "model_id": model_id,
-            "inputs": {"import/Placeholder:0": input_data}
+            "inputs": {"input": input_data}
         }))
         .send()
         .await
@@ -476,12 +476,12 @@ async fn test_e2e_complete_workflow() {
     assert!(api_key["data"]["key"].is_string());
 }
 
-fn lenet_config_path() -> String {
-    common::models_dir().join("lenet.toml").to_string_lossy().to_string()
+fn hanzi_config_path() -> String {
+    common::models_dir().join("hanzi-tiny.toml").to_string_lossy().to_string()
 }
 
 fn test_image_path() -> String {
-    common::models_dir().join("1.png").to_string_lossy().to_string()
+    common::models_dir().join("#U4e16.jpg").to_string_lossy().to_string()
 }
 
 #[tokio::test]
@@ -502,15 +502,15 @@ async fn test_e2e_model_upload_with_config_workflow() {
 
     let admin_key = bootstrap["data"]["api_key"].as_str().unwrap();
 
-    let model_path = common::lenet_model_path();
-    let config_path = lenet_config_path();
+    let model_path = common::hanzi_tiny_model_path();
+    let config_path = hanzi_config_path();
     let model_data = std::fs::read(&model_path).expect("Failed to read model file");
     let config_data = std::fs::read_to_string(&config_path).expect("Failed to read config file");
 
     let form = reqwest::multipart::Form::new()
-        .text("name", "e2e-lenet")
+        .text("name", "e2e-hanzi")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"))
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
         .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
 
     let upload_response = client
@@ -556,15 +556,16 @@ async fn test_e2e_image_inference_workflow() {
 
     let admin_key = bootstrap["data"]["api_key"].as_str().unwrap();
 
-    let model_path = common::lenet_model_path();
-    let config_path = lenet_config_path();
+    let model_path = common::hanzi_tiny_model_path();
+    let models_dir = common::models_dir();
+    let config_path = models_dir.join("hanzi-tiny-no-labels.toml");
     let model_data = std::fs::read(&model_path).expect("Failed to read model file");
     let config_data = std::fs::read_to_string(&config_path).expect("Failed to read config file");
 
     let form = reqwest::multipart::Form::new()
-        .text("name", "e2e-lenet-img")
+        .text("name", "e2e-hanzi-img")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"))
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
         .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
 
     let upload_response = client
@@ -581,7 +582,7 @@ async fn test_e2e_image_inference_workflow() {
     let image_data = std::fs::read(&image_path).expect("Failed to read test image");
 
     let infer_form = reqwest::multipart::Form::new()
-        .text("name", "e2e-lenet-img")
+        .text("name", "e2e-hanzi-img")
         .text("version", "1.0.0")
         .part("image", reqwest::multipart::Part::bytes(image_data).file_name("test.png"));
 
@@ -639,7 +640,7 @@ dtype = "float32"
         .json(&json!({
             "name": "model-with-metadata",
             "version": "1.0.0",
-            "file_path": common::lenet_model_path(),
+            "file_path": common::hanzi_tiny_model_path(),
             "config": config_toml
         }))
         .send()
@@ -669,9 +670,9 @@ async fn test_e2e_model_with_labels_inference() {
 
     let admin_key = bootstrap["data"]["api_key"].as_str().unwrap();
 
-    let model_path = common::lenet_model_path();
+    let model_path = common::hanzi_tiny_model_path();
     let models_dir = common::models_dir();
-    let config_path = models_dir.join("lenet_with_labels.toml");
+    let config_path = models_dir.join("hanzi-tiny.toml");
     
     let config_content = std::fs::read_to_string(&config_path).expect("Failed to read config file");
     let mut config: ferrinx_core::model::config::ModelConfig = toml::from_str(&config_content).unwrap();
@@ -681,9 +682,9 @@ async fn test_e2e_model_with_labels_inference() {
     let model_data = std::fs::read(&model_path).expect("Failed to read model file");
 
     let form = reqwest::multipart::Form::new()
-        .text("name", "lenet-labels-test")
+        .text("name", "hanzi-labels-test")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"))
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
         .part("config", reqwest::multipart::Part::text(embedded_config).file_name("model.toml"));
 
     let upload_response = client
@@ -699,11 +700,11 @@ async fn test_e2e_model_with_labels_inference() {
     
     assert!(upload_body["data"]["metadata"]["model"]["labels"].is_object(), "Labels not embedded: {:?}", upload_body["data"]["metadata"]["model"]);
     let labels = &upload_body["data"]["metadata"]["model"]["labels"];
-    assert_eq!(labels["labels"].as_array().unwrap().len(), 10);
+    assert_eq!(labels["labels"].as_array().unwrap().len(), 994);
 
     let model_id = upload_body["data"]["id"].as_str().unwrap();
 
-    let image_path = models_dir.join("1.png");
+    let image_path = models_dir.join("#U4e16.jpg");
     let image_data = std::fs::read(&image_path).expect("Failed to read test image");
 
     let infer_form = reqwest::multipart::Form::new()

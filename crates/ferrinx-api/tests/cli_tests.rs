@@ -272,7 +272,7 @@ async fn test_model_operations_via_client() {
             &serde_json::json!({
                 "name": "cli-test-model",
                 "version": "1.0.0",
-                "file_path": common::lenet_model_path()
+                "file_path": common::hanzi_tiny_model_path()
             }),
         )
         .await
@@ -302,7 +302,7 @@ async fn test_inference_via_client() {
 
     let client = ferrinx_cli::HttpClient::new(&config).unwrap();
 
-    let input_data: Vec<f32> = vec![0.0; 1 * 1 * 28 * 28];
+    let input_data: Vec<f32> = vec![0.0; 1 * 1 * 64 * 64];
     let infer_result: serde_json::Value = client
         .post(
             "/api/v1/inference/sync",
