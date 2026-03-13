@@ -5,6 +5,18 @@ use crate::error::Result;
 use crate::output::{self, ModelDetail};
 use clap::Subcommand;
 use std::collections::HashMap;
+use std::path::Path;
+
+pub fn embed_labels_in_config(config_content: &str, config_path: &str) -> Result<String> {
+    let mut config: ferrinx_core::model::config::ModelConfig = toml::from_str(config_content)
+        .map_err(|e| crate::error::CliError::Config(format!("Invalid config TOML: {}", e)))?;
+    
+    let base_path = Path::new(config_path).parent().unwrap_or(Path::new("."));
+    config.embed_labels(base_path);
+    
+    toml::to_string(&config)
+        .map_err(|e| crate::error::CliError::Config(format!("Failed to serialize config: {}", e)))
+}
 
 #[derive(Subcommand)]
 pub enum ModelCommands {
@@ -98,7 +110,8 @@ pub async fn handle_model(
             model_config: config_path,
         } => {
             let config_content = if let Some(path) = config_path {
-                Some(std::fs::read_to_string(&path)?)
+                let content = std::fs::read_to_string(&path)?;
+                Some(embed_labels_in_config(&content, &path)?)
             } else {
                 None
             };

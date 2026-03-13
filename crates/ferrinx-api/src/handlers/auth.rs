@@ -58,6 +58,7 @@ pub async fn login(
     Ok(Json(ApiResponse::success(LoginResponse {
         api_key: raw_key,
         user_id: user.id.to_string(),
+        expires_at: Some(expires_at.to_rfc3339()),
     })))
 }
 
@@ -130,5 +131,6 @@ pub async fn bootstrap(
     Ok(Json(ApiResponse::success(LoginResponse {
         api_key: raw_key,
         user_id: admin_id.to_string(),
+        expires_at: None,
     })))
 }

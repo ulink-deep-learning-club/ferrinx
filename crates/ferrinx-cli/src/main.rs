@@ -119,6 +119,12 @@ async fn handle_bootstrap(client: &HttpClient, config: &mut CliConfig) -> Result
 async fn main() {
     if let Err(e) = run().await {
         eprintln!("Error: {}", e);
+        // Print the full error chain for debugging
+        let mut source = std::error::Error::source(&e);
+        while let Some(err) = source {
+            eprintln!("  Caused by: {}", err);
+            source = std::error::Error::source(err);
+        }
         std::process::exit(1);
     }
 }

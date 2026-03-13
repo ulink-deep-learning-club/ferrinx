@@ -19,6 +19,7 @@ pub struct AppState {
     pub storage: Arc<dyn ferrinx_core::ModelStorage>,
     pub rate_limiter: Arc<crate::middleware::rate_limit::RateLimiter>,
     pub cancel_token: CancellationToken,
+    pub start_time: std::time::Instant,
 }
 
 pub fn create_router(state: AppState) -> Router {

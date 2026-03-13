@@ -13,7 +13,11 @@ use crate::common::TestDb;
 
 pub fn fixtures_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/common")
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("tests/fixtures")
 }
 
 pub fn models_dir() -> std::path::PathBuf {
@@ -70,6 +74,7 @@ impl TestApp {
             storage,
             rate_limiter,
             cancel_token: self.cancel_token.clone(),
+            start_time: std::time::Instant::now(),
         };
 
         create_router(state)

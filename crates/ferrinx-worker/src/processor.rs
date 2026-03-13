@@ -198,7 +198,6 @@ impl TaskProcessor {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use ferrinx_common::{ModelInfo, TaskStatus};
     use ferrinx_core::InferenceEngine;
     use std::collections::HashMap;
     use std::sync::Arc;

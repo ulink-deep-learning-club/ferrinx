@@ -120,7 +120,6 @@ impl ModelLoader {
 mod tests {
     use super::*;
     use crate::storage::LocalStorage;
-    use std::io::Write;
 
     fn create_test_storage() -> Arc<dyn ModelStorage> {
         Arc::new(LocalStorage::new("./test_models").unwrap())

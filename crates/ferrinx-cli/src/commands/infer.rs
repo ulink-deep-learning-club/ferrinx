@@ -133,7 +133,10 @@ pub async fn handle_infer(
                 let request = AsyncInferRequest {
                     model_id,
                     inputs,
-                    priority,
+                    options: crate::commands::InferOptions {
+                        priority,
+                        timeout: 300,
+                    },
                 };
 
                 let response: AsyncInferResponse = client.post("/inference", &request).await?;

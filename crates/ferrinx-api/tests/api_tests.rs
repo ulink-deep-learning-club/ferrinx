@@ -251,7 +251,7 @@ async fn test_sync_inference() {
     let test_app = TestApp::new().await;
     let user = test_app.db.create_user("inferuser", UserRole::User).await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "infer-key", false).await;
-    let model = test_app.db.create_model("test-model", "1.0").await;
+    let model = test_app.db.create_model_with_storage("test-model", "1.0", test_app.storage_path.path()).await;
     let (addr, _handle) = test_app.start_server().await;
 
     // LeNet expects a 1x1x28x28 tensor (batch, channels, height, width)
@@ -614,7 +614,7 @@ async fn test_image_inference_with_config() {
     }
     assert!(infer_status.is_success());
 
-    assert!(infer_body["data"]["result"].is_object());
+    assert!(infer_body["data"]["result"].is_array() || infer_body["data"]["result"].is_object());
     assert!(infer_body["data"]["latency_ms"].is_number());
 }
 

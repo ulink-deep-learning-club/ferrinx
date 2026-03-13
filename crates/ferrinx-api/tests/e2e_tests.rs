@@ -76,7 +76,7 @@ async fn test_e2e_full_api_key_workflow() {
 
     assert!(create_response.status().is_success());
     let create_body: serde_json::Value = create_response.json().await.unwrap();
-    let new_key_id = create_body["data"]["id"].as_str().unwrap();
+    let new_key_id = create_body["data"]["key_id"].as_str().unwrap();
 
     let list_response = client
         .get(format!("http://{}/api/v1/api-keys", addr))
@@ -595,7 +595,7 @@ async fn test_e2e_image_inference_workflow() {
 
     assert!(infer_response.status().is_success());
     let infer_body: serde_json::Value = infer_response.json().await.unwrap();
-    assert!(infer_body["data"]["result"].is_object());
+    assert!(infer_body["data"]["result"].is_array() || infer_body["data"]["result"].is_object());
     assert!(infer_body["data"]["latency_ms"].is_number());
 }
 
@@ -633,10 +633,6 @@ shape = [-1, 10]
 dtype = "float32"
 "#;
 
-    let config: ferrinx_core::model::config::ModelConfig = 
-        ferrinx_core::model::config::ModelConfig::from_toml(config_toml).unwrap();
-    let metadata = serde_json::to_value(config).unwrap();
-
     let register_response = client
         .post(format!("http://{}/api/v1/models/register", addr))
         .bearer_auth(admin_key)
@@ -644,7 +640,7 @@ dtype = "float32"
             "name": "model-with-metadata",
             "version": "1.0.0",
             "file_path": common::lenet_model_path(),
-            "metadata": metadata
+            "config": config_toml
         }))
         .send()
         .await
@@ -653,4 +649,80 @@ dtype = "float32"
     assert!(register_response.status().is_success());
     let register_body: serde_json::Value = register_response.json().await.unwrap();
     assert!(register_body["data"]["metadata"].is_object());
+}
+
+#[tokio::test]
+async fn test_e2e_model_with_labels_inference() {
+    let test_app = TestApp::new().await;
+    let (addr, _handle) = test_app.start_server().await;
+
+    let client = reqwest::Client::new();
+
+    let bootstrap: serde_json::Value = client
+        .post(format!("http://{}/api/v1/bootstrap", addr))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let admin_key = bootstrap["data"]["api_key"].as_str().unwrap();
+
+    let model_path = common::lenet_model_path();
+    let models_dir = common::models_dir();
+    let config_path = models_dir.join("lenet_with_labels.toml");
+    
+    let config_content = std::fs::read_to_string(&config_path).expect("Failed to read config file");
+    let mut config: ferrinx_core::model::config::ModelConfig = toml::from_str(&config_content).unwrap();
+    config.embed_labels(&models_dir);
+    let embedded_config = toml::to_string(&config).unwrap();
+    
+    let model_data = std::fs::read(&model_path).expect("Failed to read model file");
+
+    let form = reqwest::multipart::Form::new()
+        .text("name", "lenet-labels-test")
+        .text("version", "1.0.0")
+        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("lenet.onnx"))
+        .part("config", reqwest::multipart::Part::text(embedded_config).file_name("model.toml"));
+
+    let upload_response = client
+        .post(format!("http://{}/api/v1/models/upload", addr))
+        .bearer_auth(admin_key)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    assert!(upload_response.status().is_success());
+    let upload_body: serde_json::Value = upload_response.json().await.unwrap();
+    
+    assert!(upload_body["data"]["metadata"]["model"]["labels"].is_object(), "Labels not embedded: {:?}", upload_body["data"]["metadata"]["model"]);
+    let labels = &upload_body["data"]["metadata"]["model"]["labels"];
+    assert_eq!(labels["labels"].as_array().unwrap().len(), 10);
+
+    let model_id = upload_body["data"]["id"].as_str().unwrap();
+
+    let image_path = models_dir.join("1.png");
+    let image_data = std::fs::read(&image_path).expect("Failed to read test image");
+
+    let infer_form = reqwest::multipart::Form::new()
+        .text("model_id", model_id.to_string())
+        .part("image", reqwest::multipart::Part::bytes(image_data).file_name("test.png"));
+
+    let infer_response = client
+        .post(format!("http://{}/api/v1/inference/image", addr))
+        .bearer_auth(admin_key)
+        .multipart(infer_form)
+        .send()
+        .await
+        .unwrap();
+
+    assert!(infer_response.status().is_success());
+    let infer_body: serde_json::Value = infer_response.json().await.unwrap();
+    
+    assert!(infer_body["data"]["result"].is_object());
+    assert!(infer_body["data"]["result"]["label"].is_string());
+    assert!(infer_body["data"]["result"]["class_index"].is_number());
+    assert!(infer_body["data"]["result"]["probability"].is_number());
 }

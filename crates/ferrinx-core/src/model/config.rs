@@ -24,11 +24,33 @@ pub struct ModelMeta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LabelsSource {
+    Path(String),
+    Embedded(LabelMapping),
+}
+
+impl LabelsSource {
+    pub fn into_embedded(self) -> Option<LabelMapping> {
+        match self {
+            LabelsSource::Embedded(labels) => Some(labels),
+            LabelsSource::Path(_) => None,
+        }
+    }
+
+    pub fn as_embedded(&self) -> Option<&LabelMapping> {
+        match self {
+            LabelsSource::Embedded(labels) => Some(labels),
+            LabelsSource::Path(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelFile {
     #[serde(default)]
     pub file: String,
-    #[serde(default)]
-    pub labels: Option<String>,
+    pub labels: Option<LabelsSource>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,15 +185,21 @@ impl ModelConfig {
         Ok(Self::from_toml(&content)?)
     }
 
-    pub fn load_labels(&self, base_path: &Path) -> Option<LabelMapping> {
-        self.model.as_ref().and_then(|m| {
-            m.labels.as_ref().and_then(|label_file| {
+    pub fn embed_labels(&mut self, base_path: &Path) {
+        if let Some(ref mut model) = self.model {
+            if let Some(LabelsSource::Path(label_file)) = &model.labels {
                 let label_path = base_path.join(label_file);
-                std::fs::read_to_string(label_path)
-                    .ok()
-                    .and_then(|content| serde_json::from_str(&content).ok())
-            })
-        })
+                if let Ok(content) = std::fs::read_to_string(label_path) {
+                    if let Ok(labels) = serde_json::from_str::<LabelMapping>(&content) {
+                        model.labels = Some(LabelsSource::Embedded(labels));
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn get_labels(&self) -> Option<&LabelMapping> {
+        self.model.as_ref()?.labels.as_ref()?.as_embedded()
     }
 
     pub fn input_by_name(&self, name: &str) -> Option<&InputConfig> {
@@ -313,5 +341,141 @@ shape = [-1, 10]
         assert!(config.model.is_none());
         assert_eq!(config.inputs.len(), 1);
         assert_eq!(config.outputs.len(), 1);
+    }
+
+    #[test]
+    fn test_labels_source_path() {
+        let toml_content = r#"
+[model]
+file = "model.onnx"
+labels = "labels.json"
+
+[[inputs]]
+name = "input"
+shape = [-1, 10]
+"#;
+
+        let config = ModelConfig::from_toml(toml_content).unwrap();
+        let model = config.model.unwrap();
+        match model.labels {
+            Some(LabelsSource::Path(path)) => assert_eq!(path, "labels.json"),
+            _ => panic!("Expected LabelsSource::Path"),
+        }
+    }
+
+    #[test]
+    fn test_labels_source_embedded() {
+        let toml_content = r#"
+[model]
+file = "model.onnx"
+labels = { labels = ["cat", "dog"], description = "test" }
+
+[[inputs]]
+name = "input"
+shape = [-1, 10]
+"#;
+
+        let config = ModelConfig::from_toml(toml_content).unwrap();
+        let model = config.model.unwrap();
+        match model.labels {
+            Some(LabelsSource::Embedded(mapping)) => {
+                assert_eq!(mapping.labels, vec!["cat", "dog"]);
+                assert_eq!(mapping.description, Some("test".to_string()));
+            }
+            _ => panic!("Expected LabelsSource::Embedded"),
+        }
+    }
+
+    #[test]
+    fn test_get_labels() {
+        let toml_content = r#"
+[model]
+file = "model.onnx"
+labels = { labels = ["a", "b", "c"], description = "test labels" }
+
+[[inputs]]
+name = "input"
+shape = [-1, 10]
+"#;
+
+        let config = ModelConfig::from_toml(toml_content).unwrap();
+        let labels = config.get_labels().unwrap();
+        assert_eq!(labels.labels, vec!["a", "b", "c"]);
+        assert_eq!(labels.description, Some("test labels".to_string()));
+    }
+
+    #[test]
+    fn test_get_labels_none() {
+        let toml_content = r#"
+[[inputs]]
+name = "input"
+shape = [-1, 10]
+"#;
+
+        let config = ModelConfig::from_toml(toml_content).unwrap();
+        assert!(config.get_labels().is_none());
+    }
+
+    #[test]
+    fn test_embed_labels_from_file() {
+        use std::io::Write;
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let labels_path = temp_dir.path().join("labels.json");
+        let mut labels_file = std::fs::File::create(&labels_path).unwrap();
+        writeln!(
+            labels_file,
+            r#"{{"labels": ["cat", "dog", "bird"], "description": "test animals"}}"#
+        )
+        .unwrap();
+
+        let config_path = temp_dir.path().join("model.toml");
+        let mut config_file = std::fs::File::create(&config_path).unwrap();
+        writeln!(
+            config_file,
+            r#"
+[model]
+file = "model.onnx"
+labels = "labels.json"
+
+[[inputs]]
+name = "input"
+shape = [-1, 10]
+"#
+        )
+        .unwrap();
+
+        let config_content = std::fs::read_to_string(&config_path).unwrap();
+        let mut config = ModelConfig::from_toml(&config_content).unwrap();
+
+        assert!(config.get_labels().is_none());
+
+        config.embed_labels(temp_dir.path());
+
+        let labels = config.get_labels().unwrap();
+        assert_eq!(labels.labels, vec!["cat", "dog", "bird"]);
+        assert_eq!(labels.description, Some("test animals".to_string()));
+    }
+
+    #[test]
+    fn test_embed_labels_already_embedded() {
+        let toml_content = r#"
+[model]
+file = "model.onnx"
+labels = { labels = ["existing"], description = "already embedded" }
+
+[[inputs]]
+name = "input"
+shape = [-1, 10]
+"#;
+
+        let mut config = ModelConfig::from_toml(toml_content).unwrap();
+        let original_labels = config.get_labels().unwrap().clone();
+
+        config.embed_labels(std::path::Path::new("."));
+
+        let labels = config.get_labels().unwrap();
+        assert_eq!(labels.labels, original_labels.labels);
+        assert_eq!(labels.description, original_labels.description);
     }
 }

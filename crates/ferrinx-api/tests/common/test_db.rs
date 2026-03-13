@@ -86,12 +86,32 @@ impl TestDb {
     }
 
     pub async fn create_model(&self, name: &str, version: &str) -> ModelInfo {
-        self.create_model_with_config(name, version, true).await
+        self.create_model_with_config(name, version, true, None).await
     }
 
-    pub async fn create_model_with_config(&self, name: &str, version: &str, with_config: bool) -> ModelInfo {
-        let model_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/common/models/lenet.onnx");
+    pub async fn create_model_with_storage(&self, name: &str, version: &str, storage_path: &std::path::Path) -> ModelInfo {
+        self.create_model_with_config(name, version, true, Some(storage_path)).await
+    }
+
+    pub async fn create_model_with_config(&self, name: &str, version: &str, with_config: bool, storage_path: Option<&std::path::Path>) -> ModelInfo {
+        // Find the model file in fixtures directory (workspace root)
+        let source_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("tests/fixtures/models/lenet.onnx");
+        
+        // Copy to storage if provided, otherwise use source path
+        let model_path = if let Some(storage) = storage_path {
+            let models_dir = storage.join("models");
+            std::fs::create_dir_all(&models_dir).expect("Failed to create models dir");
+            let dest_path = models_dir.join(format!("{}_{}.onnx", name, version));
+            std::fs::copy(&source_path, &dest_path).expect("Failed to copy model file");
+            dest_path
+        } else {
+            source_path
+        };
         
         let file_size = std::fs::metadata(&model_path)
             .map(|m| m.len() as i64)

@@ -4,7 +4,6 @@ use reqwest::multipart;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Duration;
 use tokio_util::io::ReaderStream;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -27,15 +26,8 @@ pub struct HttpClient {
 
 impl HttpClient {
     pub fn new(config: &CliConfig) -> Result<Self> {
-        let mut builder = reqwest::Client::builder()
-            .timeout(Duration::from_secs(config.timeout))
-            .connect_timeout(Duration::from_secs(10));
-
-        if !config.verify_ssl {
-            builder = builder.danger_accept_invalid_certs(true);
-        }
-
-        let client = builder.build()?;
+        // Use default client to avoid potential connection issues
+        let client = reqwest::Client::new();
 
         Ok(Self {
             client,
@@ -75,11 +67,7 @@ impl HttpClient {
         })
     }
 
-    pub async fn post<T: DeserializeOwned, B: Serialize>(
-        &self,
-        path: &str,
-        body: &B,
-    ) -> Result<T> {
+    pub async fn post<T: DeserializeOwned, B: Serialize>(&self, path: &str, body: &B) -> Result<T> {
         let url = format!("{}{}", self.base_url, path);
 
         let mut request = self.client.post(&url).json(body);
@@ -102,7 +90,11 @@ impl HttpClient {
         })
     }
 
-    pub async fn post_raw<T: DeserializeOwned>(&self, path: &str, body: serde_json::Value) -> Result<T> {
+    pub async fn post_raw<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: serde_json::Value,
+    ) -> Result<T> {
         let url = format!("{}{}", self.base_url, path);
 
         let mut request = self.client.post(&url).json(&body);
@@ -175,11 +167,7 @@ impl HttpClient {
         Ok(())
     }
 
-    pub async fn put<T: DeserializeOwned, B: Serialize>(
-        &self,
-        path: &str,
-        body: &B,
-    ) -> Result<T> {
+    pub async fn put<T: DeserializeOwned, B: Serialize>(&self, path: &str, body: &B) -> Result<T> {
         let url = format!("{}{}", self.base_url, path);
 
         let mut request = self.client.put(&url).json(body);
@@ -208,7 +196,8 @@ impl HttpClient {
         file_path: &str,
         form_data: HashMap<String, String>,
     ) -> Result<T> {
-        self.upload_with_config(path, file_path, form_data, None).await
+        self.upload_with_config(path, file_path, form_data, None)
+            .await
     }
 
     pub async fn upload_with_config<T: DeserializeOwned>(
@@ -218,6 +207,24 @@ impl HttpClient {
         form_data: HashMap<String, String>,
         config_path: Option<&str>,
     ) -> Result<T> {
+        let config_content = if let Some(cfg_path) = config_path {
+            let content = tokio::fs::read_to_string(cfg_path).await?;
+            Some(crate::commands::embed_labels_in_config(&content, cfg_path)?)
+        } else {
+            None
+        };
+
+        self.upload_with_config_content(path, file_path, form_data, config_content.as_deref())
+            .await
+    }
+
+    pub async fn upload_with_config_content<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        file_path: &str,
+        form_data: HashMap<String, String>,
+        config_content: Option<&str>,
+    ) -> Result<T> {
         let url = format!("{}{}", self.base_url, path);
 
         let file = tokio::fs::File::open(file_path).await?;
@@ -226,11 +233,9 @@ impl HttpClient {
         let file_name = file_path.split('/').next_back().unwrap_or("file");
 
         let stream = ReaderStream::new(file);
-        let part = multipart::Part::stream_with_length(
-            reqwest::Body::wrap_stream(stream),
-            file_size,
-        )
-        .file_name(file_name.to_string());
+        let part =
+            multipart::Part::stream_with_length(reqwest::Body::wrap_stream(stream), file_size)
+                .file_name(file_name.to_string());
 
         let mut form = multipart::Form::new().part("file", part);
 
@@ -238,9 +243,8 @@ impl HttpClient {
             form = form.text(key, value);
         }
 
-        if let Some(cfg_path) = config_path {
-            let config_content = tokio::fs::read_to_string(cfg_path).await?;
-            form = form.text("config", config_content);
+        if let Some(content) = config_content {
+            form = form.text("config", content.to_string());
         }
 
         let mut request = self.client.post(&url).multipart(form);
@@ -277,16 +281,14 @@ impl HttpClient {
         let file_name = image_path.split('/').next_back().unwrap_or("image");
 
         let stream = ReaderStream::new(file);
-        let part = multipart::Part::stream_with_length(
-            reqwest::Body::wrap_stream(stream),
-            file_size,
-        )
-        .file_name(file_name.to_string())
-        .mime_str("image/*")
-        .map_err(|e| CliError::HttpError {
-            status: 0,
-            message: format!("MIME error: {}", e),
-        })?;
+        let part =
+            multipart::Part::stream_with_length(reqwest::Body::wrap_stream(stream), file_size)
+                .file_name(file_name.to_string())
+                .mime_str("image/*")
+                .map_err(|e| CliError::HttpError {
+                    status: 0,
+                    message: format!("MIME error: {}", e),
+                })?;
 
         let mut form = multipart::Form::new().part("image", part);
 

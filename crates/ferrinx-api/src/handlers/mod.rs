@@ -13,9 +13,11 @@ use crate::{
 pub async fn health(
     State(state): State<AppState>,
 ) -> Json<ApiResponse<HealthResponse>> {
+    let uptime_secs = state.start_time.elapsed().as_secs();
     Json(ApiResponse::success(HealthResponse {
         status: "ok".to_string(),
         version: state.config.server.api_version.clone(),
+        uptime_secs,
     }))
 }
 

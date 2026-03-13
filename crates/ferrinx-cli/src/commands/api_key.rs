@@ -4,7 +4,7 @@ use crate::config::CliConfig;
 use crate::error::Result;
 use crate::output;
 use clap::Subcommand;
-use ferrinx_common::ApiKeyInfo;
+use ferrinx_api::dto::ApiKeyDetail as ApiKeyResponse;
 
 #[derive(Subcommand)]
 pub enum ApiKeyCommands {
@@ -55,7 +55,7 @@ pub async fn handle_api_key(
 
             #[derive(serde::Deserialize)]
             struct CreateKeyResponse {
-                key_id: uuid::Uuid,
+                key_id: String,
                 key: String,
                 name: String,
             }
@@ -69,11 +69,11 @@ pub async fn handle_api_key(
             output::print_info("Save the key securely - it will not be shown again");
         }
         ApiKeyCommands::List => {
-            let keys: Vec<ApiKeyInfo> = client.get("/api-keys").await?;
+            let keys: Vec<ApiKeyResponse> = client.get("/api-keys").await?;
             output::print_api_keys(&keys, config.output_format)?;
         }
         ApiKeyCommands::Info { key_id } => {
-            let key: ApiKeyInfo = client.get(&format!("/api-keys/{}", key_id)).await?;
+            let key: ApiKeyResponse = client.get(&format!("/api-keys/{}", key_id)).await?;
             output::print_output(&key, config.output_format)?;
         }
         ApiKeyCommands::Revoke { key_id } => {
@@ -94,7 +94,7 @@ pub async fn handle_api_key(
                 permissions: perms,
             };
 
-            let key: ApiKeyInfo = client
+            let key: ApiKeyResponse = client
                 .put(&format!("/api-keys/{}", key_id), &request)
                 .await?;
 

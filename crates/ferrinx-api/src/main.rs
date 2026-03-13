@@ -79,6 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     let cancel_token = CancellationToken::new();
+    let start_time = std::time::Instant::now();
 
     let state = AppState {
         config: Arc::new(config.clone()),
@@ -89,6 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         storage,
         rate_limiter,
         cancel_token: cancel_token.clone(),
+        start_time,
     };
 
     let app = create_router(state);

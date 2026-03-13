@@ -76,6 +76,7 @@ fn generate_request_id() -> String {
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
+    pub uptime_secs: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -95,6 +96,7 @@ pub struct LoginRequest {
 pub struct LoginResponse {
     pub api_key: String,
     pub user_id: String,
+    pub expires_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -134,7 +136,7 @@ impl From<ferrinx_common::ModelInfo> for ModelDetail {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ApiKeyDetail {
     pub id: String,
     pub name: String,
@@ -145,7 +147,7 @@ pub struct ApiKeyDetail {
     pub created_at: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TaskDetail {
     pub task_id: String,
     pub model_id: String,
@@ -189,7 +191,7 @@ impl From<ferrinx_common::ApiKeyRecord> for ApiKeyDetail {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct UserDetail {
     pub id: String,
     pub username: String,
@@ -216,14 +218,15 @@ pub struct CreateApiKeyRequest {
     #[serde(default)]
     pub permissions: Option<ferrinx_common::Permissions>,
     #[serde(default)]
-    pub expires_in_hours: Option<u64>,
+    pub expires_in_days: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct CreateApiKeyResponse {
-    pub id: String,
+    pub key_id: String,
     pub key: String,
     pub name: String,
+    pub expires_at: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

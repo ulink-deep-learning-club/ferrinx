@@ -17,6 +17,7 @@ pub use config_cmd::ConfigCommands;
 pub use infer::handle_infer;
 pub use infer::InferCommands;
 pub use model::handle_model;
+pub use model::embed_labels_in_config;
 pub use model::ModelCommands;
 pub use task::handle_task;
 pub use task::TaskCommands;
@@ -95,12 +96,29 @@ pub struct SyncInferResponse {
 pub struct AsyncInferRequest {
     pub model_id: String,
     pub inputs: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub options: InferOptions,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct InferOptions {
+    #[serde(default = "default_priority")]
     pub priority: String,
+    #[serde(default = "default_timeout")]
+    pub timeout: u32,
+}
+
+fn default_priority() -> String {
+    "normal".to_string()
+}
+
+fn default_timeout() -> u32 {
+    300
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AsyncInferResponse {
-    pub task_id: uuid::Uuid,
+    pub task_id: String,
     pub status: String,
 }
 

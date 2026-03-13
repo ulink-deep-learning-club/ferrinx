@@ -3,7 +3,7 @@ use crate::config::CliConfig;
 use crate::error::Result;
 use crate::output;
 use clap::Subcommand;
-use ferrinx_common::InferenceTask;
+use ferrinx_api::dto::TaskDetail as TaskResponse;
 
 #[derive(Subcommand)]
 pub enum TaskCommands {
@@ -42,11 +42,11 @@ pub async fn handle_task(
                 path = format!("{}?{}", path, params.join("&"));
             }
 
-            let tasks: Vec<InferenceTask> = client.get(&path).await?;
+            let tasks: Vec<TaskResponse> = client.get(&path).await?;
             output::print_tasks(&tasks, config.output_format)?;
         }
         TaskCommands::Status { task_id } => {
-            let task: InferenceTask = client.get(&format!("/inference/{}", task_id)).await?;
+            let task: TaskResponse = client.get(&format!("/inference/{}", task_id)).await?;
             output::print_task_status(&task, config.output_format)?;
         }
         TaskCommands::Cancel { task_id } => {

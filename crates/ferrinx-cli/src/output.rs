@@ -1,7 +1,7 @@
 use crate::config::OutputFormat;
 use crate::error::Result;
 use comfy_table::{Cell, CellAlignment, ContentArrangement, Table};
-use ferrinx_common::{ApiKeyInfo, InferenceTask};
+use ferrinx_api::dto::{ApiKeyDetail, TaskDetail};
 use serde::Serialize;
 
 pub fn print_output<T: Serialize>(value: &T, format: OutputFormat) -> Result<()> {
@@ -63,18 +63,23 @@ pub fn print_models(models: &[ModelDetail], format: OutputFormat) -> Result<()> 
     Ok(())
 }
 
-pub fn print_api_keys(keys: &[ApiKeyInfo], format: OutputFormat) -> Result<()> {
+pub fn print_api_keys(keys: &[ApiKeyDetail], format: OutputFormat) -> Result<()> {
     match format {
         OutputFormat::Table => {
             let mut table = create_table(&["ID", "Name", "Active", "Temporary", "Expires"]);
 
             for key in keys {
+                let short_id = if key.id.len() > 8 {
+                    &key.id[..8]
+                } else {
+                    &key.id
+                };
                 table.add_row(vec![
-                    Cell::new(&key.id.to_string()[..8]),
+                    Cell::new(short_id),
                     Cell::new(&key.name),
                     Cell::new(if key.is_active { "✓" } else { "✗" }),
                     Cell::new(if key.is_temporary { "✓" } else { "✗" }),
-                    Cell::new(key.expires_at.map_or("Never".to_string(), format_datetime)),
+                    Cell::new(key.expires_at.as_deref().unwrap_or("Never")),
                 ]);
             }
 
@@ -85,18 +90,28 @@ pub fn print_api_keys(keys: &[ApiKeyInfo], format: OutputFormat) -> Result<()> {
     Ok(())
 }
 
-pub fn print_tasks(tasks: &[InferenceTask], format: OutputFormat) -> Result<()> {
+pub fn print_tasks(tasks: &[TaskDetail], format: OutputFormat) -> Result<()> {
     match format {
         OutputFormat::Table => {
             let mut table = create_table(&["ID", "Model", "Status", "Priority", "Created"]);
 
             for task in tasks {
+                let task_id_short = if task.task_id.len() > 8 {
+                    &task.task_id[..8]
+                } else {
+                    &task.task_id
+                };
+                let model_id_short = if task.model_id.len() > 8 {
+                    &task.model_id[..8]
+                } else {
+                    &task.model_id
+                };
                 table.add_row(vec![
-                    Cell::new(&task.id.to_string()[..8]),
-                    Cell::new(&task.model_id.to_string()[..8]),
-                    Cell::new(task.status.as_str()),
-                    Cell::new(task.priority.to_string()),
-                    Cell::new(format_datetime(task.created_at)),
+                    Cell::new(task_id_short),
+                    Cell::new(model_id_short),
+                    Cell::new(&task.status),
+                    Cell::new("-"),
+                    Cell::new(&task.created_at),
                 ]);
             }
 
@@ -107,45 +122,21 @@ pub fn print_tasks(tasks: &[InferenceTask], format: OutputFormat) -> Result<()> 
     Ok(())
 }
 
-pub fn print_task_status(task: &InferenceTask, format: OutputFormat) -> Result<()> {
+pub fn print_task_status(task: &TaskDetail, format: OutputFormat) -> Result<()> {
     match format {
         OutputFormat::Table => {
             let mut table = create_table(&["Field", "Value"]);
 
-            table.add_row(vec![Cell::new("ID"), Cell::new(task.id.to_string())]);
-            table.add_row(vec![
-                Cell::new("Model ID"),
-                Cell::new(task.model_id.to_string()),
-            ]);
-            table.add_row(vec![Cell::new("Status"), Cell::new(task.status.as_str())]);
-            table.add_row(vec![
-                Cell::new("Priority"),
-                Cell::new(task.priority.to_string()),
-            ]);
-            table.add_row(vec![
-                Cell::new("Retry Count"),
-                Cell::new(task.retry_count.to_string()),
-            ]);
-            table.add_row(vec![
-                Cell::new("Created"),
-                Cell::new(format_datetime(task.created_at)),
-            ]);
+            table.add_row(vec![Cell::new("ID"), Cell::new(&task.task_id)]);
+            table.add_row(vec![Cell::new("Model ID"), Cell::new(&task.model_id)]);
+            table.add_row(vec![Cell::new("Status"), Cell::new(&task.status)]);
+            table.add_row(vec![Cell::new("Created"), Cell::new(&task.created_at)]);
 
-            if let Some(started) = task.started_at {
-                table.add_row(vec![
-                    Cell::new("Started"),
-                    Cell::new(format_datetime(started)),
-                ]);
+            if let Some(completed) = &task.completed_at {
+                table.add_row(vec![Cell::new("Completed"), Cell::new(completed)]);
             }
 
-            if let Some(completed) = task.completed_at {
-                table.add_row(vec![
-                    Cell::new("Completed"),
-                    Cell::new(format_datetime(completed)),
-                ]);
-            }
-
-            if let Some(latency) = task.latency_ms() {
+            if let Some(latency) = task.latency_ms {
                 table.add_row(vec![
                     Cell::new("Latency"),
                     Cell::new(format!("{} ms", latency)),
@@ -157,7 +148,10 @@ pub fn print_task_status(task: &InferenceTask, format: OutputFormat) -> Result<(
             }
 
             if let Some(outputs) = &task.outputs {
-                table.add_row(vec![Cell::new("Outputs"), Cell::new(outputs.to_string())]);
+                table.add_row(vec![
+                    Cell::new("Outputs"),
+                    Cell::new(format!("{:?}", outputs)),
+                ]);
             }
 
             println!("{table}");
@@ -207,10 +201,6 @@ fn create_table(headers: &[&str]) -> Table {
     table.set_header(header_row);
 
     table
-}
-
-fn format_datetime(dt: chrono::DateTime<chrono::Utc>) -> String {
-    dt.format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
 pub fn print_success(message: &str) {

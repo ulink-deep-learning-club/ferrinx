@@ -33,8 +33,8 @@ pub async fn create(
     let raw_key = generate_api_key();
     let key_hash = ferrinx_common::hash_key(&raw_key);
 
-    let expires_at = req.expires_in_hours.map(|hours| {
-        Utc::now() + Duration::hours(hours as i64)
+    let expires_at = req.expires_in_days.map(|days| {
+        Utc::now() + Duration::days(days as i64)
     });
 
     let permissions = req.permissions.unwrap_or_else(ferrinx_common::Permissions::user_default);
@@ -56,9 +56,10 @@ pub async fn create(
     state.db.api_keys.save(&api_key_record).await?;
 
     Ok(Json(ApiResponse::success(CreateApiKeyResponse {
-        id: key_id.to_string(),
+        key_id: key_id.to_string(),
         key: raw_key,
         name: req.name,
+        expires_at: expires_at.map(|t| t.to_rfc3339()),
     })))
 }
 
@@ -138,6 +139,31 @@ pub async fn update(
     }
 
     if let Some(permissions) = req.permissions {
+        // Prevent privilege escalation: user cannot grant permissions they don't have
+        if !api_key.permissions.admin {
+            // Non-admin users cannot grant admin permission
+            if permissions.admin && !key.permissions.admin {
+                return Err(ApiError::PermissionDenied);
+            }
+            // Cannot grant more model permissions than they have
+            for perm in &permissions.models {
+                if !api_key.permissions.models.contains(perm) {
+                    return Err(ApiError::PermissionDenied);
+                }
+            }
+            // Cannot grant more inference permissions than they have
+            for perm in &permissions.inference {
+                if !api_key.permissions.inference.contains(perm) {
+                    return Err(ApiError::PermissionDenied);
+                }
+            }
+            // Cannot grant more api_keys permissions than they have
+            for perm in &permissions.api_keys {
+                if !api_key.permissions.api_keys.contains(perm) {
+                    return Err(ApiError::PermissionDenied);
+                }
+            }
+        }
         key.permissions = permissions;
     }
 

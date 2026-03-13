@@ -4,7 +4,7 @@ use crate::config::CliConfig;
 use crate::error::{CliError, Result};
 use crate::output;
 use clap::Subcommand;
-use ferrinx_common::User;
+use ferrinx_api::dto::UserDetail as UserResponse;
 
 #[derive(Subcommand)]
 pub enum AdminCommands {
@@ -63,7 +63,7 @@ pub async fn handle_admin(
                 password,
                 role,
             };
-            let user: User = client.post("/admin/users", &request).await?;
+            let user: UserResponse = client.post("/admin/users", &request).await?;
 
             output::print_success(&format!("User created: {}", user.username));
             println!("User ID: {}", user.id);
@@ -97,7 +97,7 @@ pub async fn handle_admin(
                 role,
                 is_active: active,
             };
-            let user: User = client.put(&format!("/admin/users/{}", user_id), &request).await?;
+            let user: UserResponse = client.put(&format!("/admin/users/{}", user_id), &request).await?;
             output::print_success(&format!("User updated: {}", user.username));
         }
         AdminCommands::DeleteUser { user_id } => {

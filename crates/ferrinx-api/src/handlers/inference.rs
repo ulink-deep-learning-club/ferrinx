@@ -230,9 +230,11 @@ pub async fn image_infer(
                 tensor_data
             ).map_err(|e| ApiError::BadRequest(format!("Tensor creation failed: {}", e)))?;
 
+            let labels = model_config.get_labels().cloned();
+
             let post_pipeline = ferrinx_core::PostprocessPipeline::new(
                 out_cfg.postprocess.clone(),
-                None,
+                labels,
             );
 
             post_pipeline
