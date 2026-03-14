@@ -1,9 +1,10 @@
 //
-#[path = "common/mod.rs"] mod common;
+#[path = "common/mod.rs"]
+mod common;
 
 use ferrinx_common::{Tensor, UserRole};
-use serde_json::json;
 use futures::future::join_all;
+use serde_json::json;
 
 use common::TestApp;
 
@@ -53,7 +54,10 @@ async fn test_e2e_bootstrap_and_login() {
 async fn test_e2e_full_api_key_workflow() {
     let test_app = TestApp::new().await;
     let user = test_app.db.create_user("apikey_user", UserRole::User).await;
-    let (_, raw_key) = test_app.db.create_api_key(&user, "initial-key", false).await;
+    let (_, raw_key) = test_app
+        .db
+        .create_api_key(&user, "initial-key", false)
+        .await;
     let (addr, _handle) = test_app.start_server().await;
 
     let client = reqwest::Client::new();
@@ -350,8 +354,14 @@ async fn test_e2e_health_check_resilience() {
 #[tokio::test]
 async fn test_e2e_concurrent_requests() {
     let test_app = TestApp::new().await;
-    let user = test_app.db.create_user("concurrent_user", UserRole::User).await;
-    let (_, raw_key) = test_app.db.create_api_key(&user, "concurrent-key", false).await;
+    let user = test_app
+        .db
+        .create_user("concurrent_user", UserRole::User)
+        .await;
+    let (_, raw_key) = test_app
+        .db
+        .create_api_key(&user, "concurrent-key", false)
+        .await;
     let (addr, _handle) = test_app.start_server().await;
 
     let mut handles = vec![];
@@ -432,8 +442,14 @@ async fn test_e2e_complete_workflow() {
     let form = reqwest::multipart::Form::new()
         .text("name", "workflow-model")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
-        .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"),
+        )
+        .part(
+            "config",
+            reqwest::multipart::Part::text(config_data).file_name("model.toml"),
+        );
 
     let model: serde_json::Value = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -483,11 +499,17 @@ async fn test_e2e_complete_workflow() {
 }
 
 fn hanzi_config_path() -> String {
-    common::models_dir().join("hanzi-tiny.toml").to_string_lossy().to_string()
+    common::models_dir()
+        .join("hanzi-tiny.toml")
+        .to_string_lossy()
+        .to_string()
 }
 
 fn test_image_path() -> String {
-    common::models_dir().join("#U4e16.jpg").to_string_lossy().to_string()
+    common::models_dir()
+        .join("#U4e16.jpg")
+        .to_string_lossy()
+        .to_string()
 }
 
 #[tokio::test]
@@ -516,8 +538,14 @@ async fn test_e2e_model_upload_with_config_workflow() {
     let form = reqwest::multipart::Form::new()
         .text("name", "e2e-hanzi")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
-        .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"),
+        )
+        .part(
+            "config",
+            reqwest::multipart::Part::text(config_data).file_name("model.toml"),
+        );
 
     let upload_response = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -571,8 +599,14 @@ async fn test_e2e_image_inference_workflow() {
     let form = reqwest::multipart::Form::new()
         .text("name", "e2e-hanzi-img")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
-        .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"),
+        )
+        .part(
+            "config",
+            reqwest::multipart::Part::text(config_data).file_name("model.toml"),
+        );
 
     let upload_response = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -590,7 +624,10 @@ async fn test_e2e_image_inference_workflow() {
     let infer_form = reqwest::multipart::Form::new()
         .text("name", "e2e-hanzi-img")
         .text("version", "1.0.0")
-        .part("image", reqwest::multipart::Part::bytes(image_data).file_name("test.png"));
+        .part(
+            "image",
+            reqwest::multipart::Part::bytes(image_data).file_name("test.png"),
+        );
 
     let infer_response = client
         .post(format!("http://{}/api/v1/inference/image", addr))
@@ -679,19 +716,26 @@ async fn test_e2e_model_with_labels_inference() {
     let model_path = common::hanzi_tiny_model_path();
     let models_dir = common::models_dir();
     let config_path = models_dir.join("hanzi-tiny.toml");
-    
+
     let config_content = std::fs::read_to_string(&config_path).expect("Failed to read config file");
-    let mut config: ferrinx_core::model::config::ModelConfig = toml::from_str(&config_content).unwrap();
+    let mut config: ferrinx_core::model::config::ModelConfig =
+        toml::from_str(&config_content).unwrap();
     config.embed_labels(&models_dir);
     let embedded_config = toml::to_string(&config).unwrap();
-    
+
     let model_data = std::fs::read(&model_path).expect("Failed to read model file");
 
     let form = reqwest::multipart::Form::new()
         .text("name", "hanzi-labels-test")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
-        .part("config", reqwest::multipart::Part::text(embedded_config).file_name("model.toml"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"),
+        )
+        .part(
+            "config",
+            reqwest::multipart::Part::text(embedded_config).file_name("model.toml"),
+        );
 
     let upload_response = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -703,8 +747,12 @@ async fn test_e2e_model_with_labels_inference() {
 
     assert!(upload_response.status().is_success());
     let upload_body: serde_json::Value = upload_response.json().await.unwrap();
-    
-    assert!(upload_body["data"]["metadata"]["model"]["labels"].is_object(), "Labels not embedded: {:?}", upload_body["data"]["metadata"]["model"]);
+
+    assert!(
+        upload_body["data"]["metadata"]["model"]["labels"].is_object(),
+        "Labels not embedded: {:?}",
+        upload_body["data"]["metadata"]["model"]
+    );
     let labels = &upload_body["data"]["metadata"]["model"]["labels"];
     assert_eq!(labels["labels"].as_array().unwrap().len(), 994);
 
@@ -715,7 +763,10 @@ async fn test_e2e_model_with_labels_inference() {
 
     let infer_form = reqwest::multipart::Form::new()
         .text("model_id", model_id.to_string())
-        .part("image", reqwest::multipart::Part::bytes(image_data).file_name("test.png"));
+        .part(
+            "image",
+            reqwest::multipart::Part::bytes(image_data).file_name("test.png"),
+        );
 
     let infer_response = client
         .post(format!("http://{}/api/v1/inference/image", addr))
@@ -727,7 +778,7 @@ async fn test_e2e_model_with_labels_inference() {
 
     assert!(infer_response.status().is_success());
     let infer_body: serde_json::Value = infer_response.json().await.unwrap();
-    
+
     assert!(infer_body["data"]["result"].is_object());
     assert!(infer_body["data"]["result"]["label"].is_string());
     assert!(infer_body["data"]["result"]["class_index"].is_number());

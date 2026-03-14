@@ -2,8 +2,8 @@ mod local;
 
 pub use local::LocalStorage;
 
-use async_trait::async_trait;
 use crate::error::StorageError;
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait ModelStorage: Send + Sync {

@@ -1,83 +1,202 @@
+# Ferrinx Configuration
+# Copy this file to config.toml and adjust values as needed.
+# Sensitive credentials are configured via environment variables in .env
+
+# =============================================================================
+# Server Settings
+# =============================================================================
 [server]
+# Network interface to bind to. Use "0.0.0.0" for all interfaces, "127.0.0.1" for localhost only.
 host = "0.0.0.0"
+# Port number for the HTTP server (1-65535).
 port = 8080
+# Number of worker threads for handling requests.
 workers = 4
+# Maximum allowed request body size in megabytes.
 max_request_size_mb = 500
+# Graceful shutdown timeout in seconds before forcing termination.
 graceful_shutdown_timeout = 30
+# Maximum concurrent synchronous inference requests.
 sync_inference_concurrency = 4
+# Timeout in seconds for synchronous inference operations.
 sync_inference_timeout = 30
+# API version prefix for endpoints (e.g., "/v1/models").
 api_version = "v1"
+# Include API version in response headers.
 include_version_header = true
 
+# =============================================================================
+# Rate Limiting
+# Controls API request throttling to prevent abuse
+# =============================================================================
 [rate_limit]
+# Enable or disable rate limiting.
 enabled = true
+# Rate limiting algorithm.
+# Options: "token_bucket", "sliding_window"
 algorithm = "sliding_window"
+# Default requests per minute for standard endpoints.
 default_rpm = 60
+# Burst capacity - allows temporary spikes above the rate limit.
 burst = 10
+# Requests per minute for synchronous inference endpoints.
 sync_inference_rpm = 30
+# Requests per minute for asynchronous inference endpoints.
 async_inference_rpm = 100
+# Interval in seconds for cleaning up expired rate limit entries.
 cleanup_interval_secs = 60
 
+# =============================================================================
+# Authentication
+# API key settings for securing your endpoints
+# Credentials: Set FERRINX_API_KEY_SECRET in .env
+# =============================================================================
 [auth]
-api_key_secret = "${FERRINX_API_KEY_SECRET}"
+# Prefix for API keys (e.g., "frx_sk_abc123").
 api_key_prefix = "frx_sk"
+# Maximum number of API keys allowed per user.
 max_keys_per_user = 10
+# Time-to-live in hours for temporary API keys.
 temp_key_ttl_hours = 1
+# Prefix for temporary API keys.
 temp_key_prefix = "frx_sk_temp_"
 
+# =============================================================================
+# Database
+# PostgreSQL or SQLite backend for persistent storage
+# Credentials: Set FERRINX_DATABASE_URL in .env
+# =============================================================================
 [database]
+# Database backend.
+# Options: "postgresql", "sqlite"
 backend = "postgresql"
-url = "${FERRINX_DATABASE_URL}"
+# Maximum number of database connections in the pool.
 max_connections = 10
+# Automatically run database migrations on startup.
 run_migrations = false
 
+# =============================================================================
+# Redis
+# Required for task queuing, caching, and rate limiting
+# Credentials: Set FERRINX_REDIS_URL in .env
+# =============================================================================
 [redis]
-url = "${FERRINX_REDIS_URL}"
+# Connection pool size.
 pool_size = 10
+# Redis stream key for task queue.
 stream_key = "ferrinx:tasks:stream"
+# Consumer group name for workers.
 consumer_group = "ferrinx-workers"
+# Stream key for failed tasks (dead letter queue).
 dead_letter_stream = "ferrinx:tasks:dead_letter"
+# Key prefix for caching inference results.
 result_cache_prefix = "ferrinx:results"
+# Time-to-live in seconds for cached results.
 result_cache_ttl = 86400
+# Key for storing API key cache.
 api_key_store = "ferrinx:api_keys"
+# Time-to-live in seconds for cached API key lookups.
 api_key_cache_ttl = 3600
+# Fall back to database if Redis is unavailable.
 fallback_to_db = true
 
+# =============================================================================
+# Storage
+# Local or cloud storage for model files
+# =============================================================================
 [storage]
+# Storage backend.
+# Options: "local"
 backend = "local"
+# Path to the models directory (for local storage).
 path = "./models"
 
+# =============================================================================
+# ONNX Runtime
+# Inference engine configuration
+# =============================================================================
 [onnx]
+# Maximum number of models to keep in memory cache.
 cache_size = 5
+# List of model names to preload on startup.
+# Example: ["model-a", "model-b"]
 preload = []
+# Execution provider for ONNX inference.
+# Options: "CPU", "CUDA", "TensorRT", "CoreML", "ROCm", "WEBGPU"
+# Note: WebGPU is recommended for GPU acceleration on most systems.
+#       CUDA requires CUDA 12.8+ and cuDNN 9.19+ installed.
 execution_provider = "CPU"
+# GPU device ID (used when execution_provider is CUDA, TensorRT, or ROCm).
 gpu_device_id = 0
+# Path to ONNX Runtime dynamic library (optional, for load-dynamic feature).
+# Required when using --features load-dynamic on systems with older glibc.
+# Example: "/usr/local/lib/libonnxruntime.so"
+# dynamic_lib_path = ""
 
+# =============================================================================
+# Logging
+# Application logging output settings
+# =============================================================================
 [logging]
+# Log level.
+# Options: "trace", "debug", "info", "warn", "error"
 level = "info"
+# Output format for log messages.
+# Options: "json", "text"
 format = "json"
+# Optional file path for log output. Set to null to disable file logging.
 file = "./logs/ferrinx.log"
+# Maximum size of each log file in megabytes.
 max_file_size_mb = 100
+# Maximum number of rotated log files to keep.
 max_files = 10
 
+# =============================================================================
+# Worker
+# Background task processing settings
+# =============================================================================
 [worker]
+# Unique name for this worker instance. Leave empty for auto-generated.
 consumer_name = ""
+# Number of concurrent tasks to process.
 concurrency = 4
+# Interval in milliseconds between polling for new tasks.
 poll_interval_ms = 100
+# Maximum number of retry attempts for failed tasks.
 max_retries = 3
+# Delay in milliseconds between retry attempts.
 retry_delay_ms = 1000
 
+# =============================================================================
+# Cleanup
+# Automatic retention and cleanup of old data
+# =============================================================================
 [cleanup]
+# Enable automatic cleanup of old tasks and temporary keys.
 enabled = true
+# Days to retain completed tasks before cleanup.
 completed_task_retention_days = 30
+# Days to retain failed tasks before cleanup.
 failed_task_retention_days = 7
+# Days to retain cancelled tasks before cleanup.
 cancelled_task_retention_days = 3
+# Interval in hours between cleanup runs.
 cleanup_interval_hours = 24
+# Number of records to process per cleanup batch.
 cleanup_batch_size = 1000
+# Interval in hours between temporary API key cleanups.
 temp_key_cleanup_interval_hours = 1
 
+# =============================================================================
+# Model Validation
+# Pre-load validation for ONNX models
+# =============================================================================
 [model_validation]
+# Enable model validation before loading.
 enabled = true
+# Validate ONNX session creation (slower startup).
 validate_session = false
+# Timeout in seconds for model validation.
 validation_timeout_secs = 30
+# Run validation asynchronously (non-blocking startup).
 async_validation = true

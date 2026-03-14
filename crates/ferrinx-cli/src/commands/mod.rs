@@ -16,8 +16,8 @@ pub use config_cmd::handle_config;
 pub use config_cmd::ConfigCommands;
 pub use infer::handle_infer;
 pub use infer::InferCommands;
-pub use model::handle_model;
 pub use model::embed_labels_in_config;
+pub use model::handle_model;
 pub use model::ModelCommands;
 pub use task::handle_task;
 pub use task::TaskCommands;
@@ -124,14 +124,12 @@ pub struct AsyncInferResponse {
 
 pub fn parse_input(input: &str) -> Result<HashMap<String, serde_json::Value>> {
     if input.starts_with('{') {
-        let value: HashMap<String, serde_json::Value> =
-            serde_json::from_str(input)?;
+        let value: HashMap<String, serde_json::Value> = serde_json::from_str(input)?;
         Ok(value)
     } else {
         let content = std::fs::read_to_string(input)
             .map_err(|_| CliError::FileNotFound(input.to_string()))?;
-        let value: HashMap<String, serde_json::Value> =
-            serde_json::from_str(&content)?;
+        let value: HashMap<String, serde_json::Value> = serde_json::from_str(&content)?;
         Ok(value)
     }
 }

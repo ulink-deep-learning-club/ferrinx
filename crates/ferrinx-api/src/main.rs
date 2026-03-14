@@ -8,7 +8,7 @@ use ferrinx_common::Config;
 use ferrinx_core::{InferenceEngine, LocalStorage, ModelLoader};
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -27,6 +27,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             error!("Configuration error: {}", error);
         }
         return Err("Invalid configuration".into());
+    }
+
+    if let Some(ref lib_path) = config.onnx.dynamic_lib_path {
+        #[cfg(not(feature = "load-dynamic"))]
+        warn!("dynamic_lib_path is set but 'load-dynamic' feature is not enabled. Using static linking instead.");
+
+        ferrinx_core::init_onnxruntime(lib_path)?;
+        #[cfg(feature = "load-dynamic")]
+        info!("Initialized ONNX Runtime from: {}", lib_path);
     }
 
     info!("Initializing database...");
@@ -164,22 +173,38 @@ fn format_config(config: &Config) -> String {
 
     output.push_str(&format!("  Database:\n"));
     output.push_str(&format!("    backend: {:?}\n", config.database.backend));
-    output.push_str(&format!("    url: {}\n", mask_secrets("url", &config.database.url)));
+    output.push_str(&format!(
+        "    url: {}\n",
+        mask_secrets("url", &config.database.url)
+    ));
 
     output.push_str(&format!("  Storage:\n"));
     output.push_str(&format!("    backend: {:?}\n", config.storage.backend));
-    output.push_str(&format!("    path: {}\n", config.storage.path.as_deref().unwrap_or("default")));
+    output.push_str(&format!(
+        "    path: {}\n",
+        config.storage.path.as_deref().unwrap_or("default")
+    ));
 
     output.push_str(&format!("  ONNX:\n"));
-    output.push_str(&format!("    execution_provider: {:?}\n", config.onnx.execution_provider));
+    output.push_str(&format!(
+        "    execution_provider: {:?}\n",
+        config.onnx.execution_provider
+    ));
 
     output.push_str(&format!("  Auth:\n"));
-    output.push_str(&format!("    api_key_secret: {}\n", mask_secrets("secret", &config.auth.api_key_secret)));
+    output.push_str(&format!(
+        "    api_key_secret: {}\n",
+        mask_secrets("secret", &config.auth.api_key_secret)
+    ));
 
     output.push_str(&format!("  Redis:\n"));
-    output.push_str(&format!("    url: {}\n",
-        if config.redis.url.is_empty() { "(not configured)".to_string() }
-        else { mask_secrets("url", &config.redis.url) }
+    output.push_str(&format!(
+        "    url: {}\n",
+        if config.redis.url.is_empty() {
+            "(not configured)".to_string()
+        } else {
+            mask_secrets("url", &config.redis.url)
+        }
     ));
 
     output.trim_end().to_string()
@@ -189,7 +214,11 @@ fn mask_secrets(field_name: &str, value: &str) -> String {
     if field_name.contains("secret") {
         "*".repeat(8)
     } else if field_name == "url" && value.contains('@') {
-        value.split('@').last().map(|host| format!("***@{}", host)).unwrap_or_else(|| value.to_string())
+        value
+            .split('@')
+            .last()
+            .map(|host| format!("***@{}", host))
+            .unwrap_or_else(|| value.to_string())
     } else {
         value.to_string()
     }

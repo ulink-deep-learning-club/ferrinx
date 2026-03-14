@@ -10,20 +10,20 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::time::Duration;
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::debug;
 use uuid::Uuid;
 
 #[derive(Debug, Error)]
 pub enum RedisError {
     #[error("Redis connection error: {0}")]
     Connection(#[from] redis::RedisError),
-    
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
-    
+
     #[error("Stream entry not found")]
     EntryNotFound,
-    
+
     #[error("Consumer group not found")]
     GroupNotFound,
 }
@@ -74,18 +74,16 @@ impl RedisClient {
     pub async fn new(config: RedisPoolConfig) -> Result<Self, RedisError> {
         let client = RedisClientInner::open(config.url.as_str())?;
         let conn = ConnectionManager::new(client).await?;
-        
+
         Ok(Self { conn, config })
     }
-    
+
     pub async fn health_check(&self) -> Result<(), RedisError> {
         let mut conn = self.conn.clone();
-        let _: String = redis::cmd("PING")
-            .query_async(&mut conn)
-            .await?;
+        let _: String = redis::cmd("PING").query_async(&mut conn).await?;
         Ok(())
     }
-    
+
     pub async fn xadd(
         &self,
         stream: &str,
@@ -96,22 +94,20 @@ impl RedisClient {
         for (key, value) in data {
             cmd.arg(key).arg(value);
         }
-        
+
         let mut conn = self.conn.clone();
-        let id: String = cmd
-            .query_async(&mut conn)
-            .await?;
-        
+        let id: String = cmd.query_async(&mut conn).await?;
+
         Ok(id)
     }
-    
+
     pub async fn initialize_consumer_groups(&self) -> Result<(), RedisError> {
         let streams = [
             REDIS_STREAM_KEY_HIGH,
             REDIS_STREAM_KEY_NORMAL,
             REDIS_STREAM_KEY_LOW,
         ];
-        
+
         for stream in streams.iter() {
             let mut conn = self.conn.clone();
             let result: RedisResult<()> = redis::cmd("XGROUP")
@@ -122,7 +118,7 @@ impl RedisClient {
                 .arg("MKSTREAM")
                 .query_async(&mut conn)
                 .await;
-            
+
             if let Err(e) = result {
                 if !e.to_string().contains("BUSYGROUP") {
                     return Err(RedisError::Connection(e));
@@ -132,14 +128,14 @@ impl RedisClient {
                 debug!("Created consumer group for stream: {}", stream);
             }
         }
-        
+
         Ok(())
     }
-    
+
     pub async fn push_task(&self, task: &InferenceTask) -> Result<String, RedisError> {
         let stream_key = task.priority_enum().stream_key();
         let mut conn = self.conn.clone();
-        
+
         let task_id = task.id.to_string();
         let model_id = task.model_id.to_string();
         let user_id = task.user_id.to_string();
@@ -147,7 +143,7 @@ impl RedisClient {
         let priority = task.priority.to_string();
         let created_at = task.created_at.to_rfc3339();
         let inputs_json = serde_json::to_string(&task.inputs)?;
-        
+
         let entry_id: String = redis::cmd("XADD")
             .arg(stream_key)
             .arg("*")
@@ -167,30 +163,27 @@ impl RedisClient {
             .arg(&inputs_json)
             .query_async(&mut conn)
             .await?;
-        
+
         debug!("Pushed task {} to stream {}", task.id, stream_key);
         Ok(entry_id)
     }
-    
-    pub async fn consume_task(
-        &self,
-        consumer: &str,
-    ) -> Result<Option<TaskMessage>, RedisError> {
+
+    pub async fn consume_task(&self, consumer: &str) -> Result<Option<TaskMessage>, RedisError> {
         let streams = [
             (REDIS_STREAM_KEY_HIGH, ">"),
             (REDIS_STREAM_KEY_NORMAL, ">"),
             (REDIS_STREAM_KEY_LOW, ">"),
         ];
-        
+
         for (stream, id) in streams.iter() {
             if let Some(task) = self.read_from_stream(stream, consumer, id).await? {
                 return Ok(Some(task));
             }
         }
-        
+
         Ok(None)
     }
-    
+
     async fn read_from_stream(
         &self,
         stream: &str,
@@ -198,7 +191,7 @@ impl RedisClient {
         id: &str,
     ) -> Result<Option<TaskMessage>, RedisError> {
         let mut conn = self.conn.clone();
-        
+
         let result: Option<HashMap<String, Vec<Vec<Value>>>> = redis::cmd("XREADGROUP")
             .arg("GROUP")
             .arg(REDIS_CONSUMER_GROUP)
@@ -210,7 +203,7 @@ impl RedisClient {
             .arg(id)
             .query_async(&mut conn)
             .await?;
-        
+
         if let Some(streams_map) = result {
             if let Some(entries) = streams_map.get(stream) {
                 if let Some(entry) = entries.first() {
@@ -218,40 +211,37 @@ impl RedisClient {
                 }
             }
         }
-        
+
         Ok(None)
     }
-    
-    fn parse_stream_entry(
-        &self,
-        stream: &str,
-        entry: &[Value],
-    ) -> Result<TaskMessage, RedisError> {
+
+    fn parse_stream_entry(&self, stream: &str, entry: &[Value]) -> Result<TaskMessage, RedisError> {
         if entry.len() < 2 {
             return Err(RedisError::EntryNotFound);
         }
-        
+
         let entry_id = match &entry[0] {
             Value::BulkString(bytes) => String::from_utf8_lossy(bytes).to_string(),
             _ => return Err(RedisError::EntryNotFound),
         };
-        
+
         let fields = match &entry[1] {
             Value::Array(arr) => arr,
             _ => return Err(RedisError::EntryNotFound),
         };
-        
+
         let data = self.parse_fields(fields)?;
-        
+
         let task_id = self.get_field_as_uuid(&data, "task_id")?;
         let model_id = self.get_field_as_uuid(&data, "model_id")?;
         let user_id = self.get_field_as_uuid(&data, "user_id")?;
         let api_key_id = self.get_field_as_uuid(&data, "api_key_id")?;
         let priority = self.get_field_as_i32(&data, "priority")?;
         let created_at = self.get_field_as_string(&data, "created_at")?;
-        let inputs = data.get("inputs")
+        let inputs = data
+            .get("inputs")
             .and_then(|s| serde_json::from_str(s).ok());
-        
+
         Ok(TaskMessage {
             stream: stream.to_string(),
             entry_id,
@@ -264,11 +254,11 @@ impl RedisClient {
             inputs,
         })
     }
-    
+
     fn parse_fields(&self, fields: &[Value]) -> Result<HashMap<String, String>, RedisError> {
         let mut map = HashMap::new();
         let mut i = 0;
-        
+
         while i + 1 < fields.len() {
             let key = match &fields[i] {
                 Value::BulkString(bytes) => String::from_utf8_lossy(bytes).to_string(),
@@ -277,7 +267,7 @@ impl RedisClient {
                     continue;
                 }
             };
-            
+
             let value = match &fields[i + 1] {
                 Value::BulkString(bytes) => String::from_utf8_lossy(bytes).to_string(),
                 _ => {
@@ -285,73 +275,83 @@ impl RedisClient {
                     continue;
                 }
             };
-            
+
             map.insert(key, value);
             i += 2;
         }
-        
+
         Ok(map)
     }
-    
-    fn get_field_as_string(&self, data: &HashMap<String, String>, field: &str) -> Result<String, RedisError> {
+
+    fn get_field_as_string(
+        &self,
+        data: &HashMap<String, String>,
+        field: &str,
+    ) -> Result<String, RedisError> {
         data.get(field)
             .cloned()
             .ok_or_else(|| RedisError::EntryNotFound)
     }
-    
-    fn get_field_as_uuid(&self, data: &HashMap<String, String>, field: &str) -> Result<Uuid, RedisError> {
+
+    fn get_field_as_uuid(
+        &self,
+        data: &HashMap<String, String>,
+        field: &str,
+    ) -> Result<Uuid, RedisError> {
         let s = self.get_field_as_string(data, field)?;
-        Uuid::parse_str(&s)
-            .map_err(|_| RedisError::EntryNotFound)
+        Uuid::parse_str(&s).map_err(|_| RedisError::EntryNotFound)
     }
-    
-    fn get_field_as_i32(&self, data: &HashMap<String, String>, field: &str) -> Result<i32, RedisError> {
+
+    fn get_field_as_i32(
+        &self,
+        data: &HashMap<String, String>,
+        field: &str,
+    ) -> Result<i32, RedisError> {
         let s = self.get_field_as_string(data, field)?;
-        s.parse::<i32>()
-            .map_err(|_| RedisError::EntryNotFound)
+        s.parse::<i32>().map_err(|_| RedisError::EntryNotFound)
     }
-    
+
     pub async fn ack_task(&self, stream: &str, entry_id: &str) -> Result<(), RedisError> {
         let mut conn = self.conn.clone();
-        
+
         let _: () = redis::cmd("XACK")
             .arg(stream)
             .arg(REDIS_CONSUMER_GROUP)
             .arg(entry_id)
             .query_async(&mut conn)
             .await?;
-        
+
         debug!("Acknowledged task {} from stream {}", entry_id, stream);
         Ok(())
     }
-    
+
     pub async fn claim_pending_tasks(
         &self,
         consumer: &str,
     ) -> Result<Vec<TaskMessage>, RedisError> {
         let mut tasks = Vec::new();
-        
+
         let streams = [
             REDIS_STREAM_KEY_HIGH,
             REDIS_STREAM_KEY_NORMAL,
             REDIS_STREAM_KEY_LOW,
         ];
-        
+
         for stream in streams.iter() {
             let pending = self.claim_pending_from_stream(stream, consumer).await?;
             tasks.extend(pending);
         }
-        
+
         Ok(tasks)
     }
-    
+
     async fn claim_pending_from_stream(
         &self,
         stream: &str,
         consumer: &str,
     ) -> Result<Vec<TaskMessage>, RedisError> {
         let mut conn = self.conn.clone();
-        
+
         let pending: Vec<Value> = redis::cmd("XPENDING")
             .arg(stream)
             .arg(REDIS_CONSUMER_GROUP)
@@ -360,17 +360,19 @@ impl RedisClient {
             .arg(10)
             .query_async(&mut conn)
             .await?;
-        
+
         if pending.is_empty() {
             return Ok(Vec::new());
         }
-        
+
         let entry_ids: Vec<String> = pending
             .iter()
             .filter_map(|v| {
                 if let Value::Array(arr) = v {
                     arr.first().and_then(|id| match id {
-                        Value::BulkString(bytes) => Some(String::from_utf8_lossy(bytes).to_string()),
+                        Value::BulkString(bytes) => {
+                            Some(String::from_utf8_lossy(bytes).to_string())
+                        }
                         _ => None,
                     })
                 } else {
@@ -378,74 +380,77 @@ impl RedisClient {
                 }
             })
             .collect();
-        
+
         if entry_ids.is_empty() {
             return Ok(Vec::new());
         }
-        
+
         let timeout_str = self.config.task_timeout_ms.to_string();
         let mut cmd = redis::cmd("XCLAIM");
         cmd.arg(stream)
             .arg(REDIS_CONSUMER_GROUP)
             .arg(consumer)
             .arg(&timeout_str);
-        
+
         for id in &entry_ids {
             cmd.arg(id);
         }
-        
+
         let claimed: Vec<Vec<Value>> = cmd.query_async(&mut conn).await?;
-        
+
         let tasks: Vec<TaskMessage> = claimed
             .into_iter()
             .filter_map(|entry| self.parse_stream_entry(stream, &entry).ok())
             .collect();
-        
+
         if !tasks.is_empty() {
-            debug!("Claimed {} pending tasks from stream {}", tasks.len(), stream);
+            debug!(
+                "Claimed {} pending tasks from stream {}",
+                tasks.len(),
+                stream
+            );
         }
-        
+
         Ok(tasks)
     }
-    
-    pub async fn get_api_key(
-        &self,
-        key_hash: &str,
-    ) -> Result<Option<ApiKeyInfo>, RedisError> {
+
+    pub async fn get_api_key(&self, key_hash: &str) -> Result<Option<ApiKeyInfo>, RedisError> {
         let key = format!("{}:{}", REDIS_API_KEY_STORE, key_hash);
         let mut conn = self.conn.clone();
-        
+
         let value: Option<String> = conn.get(&key).await?;
-        
+
         if let Some(json) = value {
             let info: ApiKeyInfo = serde_json::from_str(&json)?;
             return Ok(Some(info));
         }
-        
+
         Ok(None)
     }
-    
+
     pub async fn set_api_key(&self, key_hash: &str, info: &ApiKeyInfo) -> Result<(), RedisError> {
         let key = format!("{}:{}", REDIS_API_KEY_STORE, key_hash);
         let json = serde_json::to_string(info)?;
         let mut conn = self.conn.clone();
-        
-        let _: () = conn.set_ex(&key, json, self.config.api_key_cache_ttl).await?;
-        
+
+        let _: () = conn
+            .set_ex(&key, json, self.config.api_key_cache_ttl)
+            .await?;
+
         debug!("Cached API key {}", key_hash);
         Ok(())
     }
-    
+
     pub async fn delete_api_key(&self, key_hash: &str) -> Result<(), RedisError> {
         let key = format!("{}:{}", REDIS_API_KEY_STORE, key_hash);
         let mut conn = self.conn.clone();
-        
+
         let _: () = conn.del(&key).await?;
-        
+
         debug!("Deleted API key cache {}", key_hash);
         Ok(())
     }
-    
+
     pub async fn set_result(
         &self,
         task_id: &Uuid,
@@ -454,68 +459,70 @@ impl RedisClient {
         let key = format!("{}:{}", REDIS_RESULT_CACHE_PREFIX, task_id);
         let json = serde_json::to_string(result)?;
         let mut conn = self.conn.clone();
-        
-        let _: () = conn.set_ex(&key, json, self.config.result_cache_ttl).await?;
-        
+
+        let _: () = conn
+            .set_ex(&key, json, self.config.result_cache_ttl)
+            .await?;
+
         debug!("Cached result for task {}", task_id);
         Ok(())
     }
-    
+
     pub async fn get_result(
         &self,
         task_id: &Uuid,
     ) -> Result<Option<serde_json::Value>, RedisError> {
         let key = format!("{}:{}", REDIS_RESULT_CACHE_PREFIX, task_id);
         let mut conn = self.conn.clone();
-        
+
         let value: Option<String> = conn.get(&key).await?;
-        
+
         if let Some(json) = value {
             let result: serde_json::Value = serde_json::from_str(&json)?;
             return Ok(Some(result));
         }
-        
+
         Ok(None)
     }
-    
+
     pub async fn delete_result(&self, task_id: &Uuid) -> Result<(), RedisError> {
         let key = format!("{}:{}", REDIS_RESULT_CACHE_PREFIX, task_id);
         let mut conn = self.conn.clone();
-        
+
         let _: () = conn.del(&key).await?;
-        
+
         debug!("Deleted result cache for task {}", task_id);
         Ok(())
     }
-    
+
     pub async fn get_stream_length(&self, stream: &str) -> Result<u64, RedisError> {
         let mut conn = self.conn.clone();
-        
+
         let len: u64 = redis::cmd("XLEN")
             .arg(stream)
             .query_async(&mut conn)
             .await?;
-        
+
         Ok(len)
     }
-    
+
     pub async fn get_all_stream_lengths(&self) -> Result<HashMap<String, u64>, RedisError> {
         let mut lengths = HashMap::new();
-        
+
         let streams = [
             REDIS_STREAM_KEY_HIGH,
             REDIS_STREAM_KEY_NORMAL,
             REDIS_STREAM_KEY_LOW,
         ];
-        
+
         for stream in streams.iter() {
             let len = self.get_stream_length(stream).await?;
             lengths.insert(stream.to_string(), len);
         }
-        
+
         Ok(lengths)
     }
-    
+
     pub async fn set_cache<T: Serialize>(
         &self,
         key: &str,
@@ -524,24 +531,24 @@ impl RedisClient {
     ) -> Result<(), RedisError> {
         let json = serde_json::to_string(value)?;
         let mut conn = self.conn.clone();
-        
+
         let _: () = conn.set_ex(key, json, ttl).await?;
         Ok(())
     }
-    
+
     pub async fn get_cache<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>, RedisError> {
         let mut conn = self.conn.clone();
-        
+
         let value: Option<String> = conn.get(key).await?;
-        
+
         if let Some(json) = value {
             let result: T = serde_json::from_str(&json)?;
             return Ok(Some(result));
         }
-        
+
         Ok(None)
     }
-    
+
     pub async fn delete_cache(&self, key: &str) -> Result<(), RedisError> {
         let mut conn = self.conn.clone();
         let _: () = conn.del(key).await?;
@@ -549,14 +556,22 @@ impl RedisClient {
     }
 
     pub async fn set_worker_heartbeat(&self, worker_id: &str) -> Result<(), RedisError> {
-        use crate::constants::{REDIS_WORKER_HEARTBEAT_TTL_SECS, REDIS_WORKER_MODELS_PREFIX, REDIS_WORKER_HEARTBEAT_SUFFIX};
-        
-        let key = format!("{}:{}:{}", REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_HEARTBEAT_SUFFIX);
+        use crate::constants::{
+            REDIS_WORKER_HEARTBEAT_SUFFIX, REDIS_WORKER_HEARTBEAT_TTL_SECS,
+            REDIS_WORKER_MODELS_PREFIX,
+        };
+
+        let key = format!(
+            "{}:{}:{}",
+            REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_HEARTBEAT_SUFFIX
+        );
         let mut conn = self.conn.clone();
-        
+
         let timestamp = chrono::Utc::now().to_rfc3339();
-        let _: () = conn.set_ex(&key, timestamp, REDIS_WORKER_HEARTBEAT_TTL_SECS).await?;
-        
+        let _: () = conn
+            .set_ex(&key, timestamp, REDIS_WORKER_HEARTBEAT_TTL_SECS)
+            .await?;
+
         debug!("Set heartbeat for worker {}", worker_id);
         Ok(())
     }
@@ -566,14 +581,19 @@ impl RedisClient {
         worker_id: &str,
         models: &HashMap<String, String>,
     ) -> Result<(), RedisError> {
-        use crate::constants::{REDIS_WORKER_MODELS_PREFIX, REDIS_WORKER_MODELS_SUFFIX, REDIS_WORKER_MODELS_TTL_SECS};
+        use crate::constants::{
+            REDIS_WORKER_MODELS_PREFIX, REDIS_WORKER_MODELS_SUFFIX, REDIS_WORKER_MODELS_TTL_SECS,
+        };
         use crate::types::ModelState;
-        
-        let key = format!("{}:{}:{}", REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_MODELS_SUFFIX);
+
+        let key = format!(
+            "{}:{}:{}",
+            REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_MODELS_SUFFIX
+        );
         let mut conn = self.conn.clone();
-        
+
         let _: () = conn.del(&key).await?;
-        
+
         if !models.is_empty() {
             let mut cmd = redis::cmd("HMSET");
             cmd.arg(&key);
@@ -581,10 +601,12 @@ impl RedisClient {
                 cmd.arg(model_id).arg(state);
             }
             let _: () = cmd.query_async(&mut conn).await?;
-            
-            let _: () = conn.expire(&key, REDIS_WORKER_MODELS_TTL_SECS as i64).await?;
+
+            let _: () = conn
+                .expire(&key, REDIS_WORKER_MODELS_TTL_SECS as i64)
+                .await?;
         }
-        
+
         for (model_id, state_str) in models {
             if let Some(state) = ModelState::from_str(state_str) {
                 let model_workers_key = format!(
@@ -600,40 +622,50 @@ impl RedisClient {
                     .arg(worker_id)
                     .query_async(&mut conn)
                     .await?;
-                
-                let _: () = conn.expire(&model_workers_key, REDIS_WORKER_MODELS_TTL_SECS as i64).await?;
+
+                let _: () = conn
+                    .expire(&model_workers_key, REDIS_WORKER_MODELS_TTL_SECS as i64)
+                    .await?;
             }
         }
-        
-        debug!("Set models for worker {}: {} models", worker_id, models.len());
+
+        debug!(
+            "Set models for worker {}: {} models",
+            worker_id,
+            models.len()
+        );
         Ok(())
     }
 
-    pub async fn get_worker_models(&self, worker_id: &str) -> Result<HashMap<String, String>, RedisError> {
+    pub async fn get_worker_models(
+        &self,
+        worker_id: &str,
+    ) -> Result<HashMap<String, String>, RedisError> {
         use crate::constants::{REDIS_WORKER_MODELS_PREFIX, REDIS_WORKER_MODELS_SUFFIX};
-        
-        let key = format!("{}:{}:{}", REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_MODELS_SUFFIX);
+
+        let key = format!(
+            "{}:{}:{}",
+            REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_MODELS_SUFFIX
+        );
         let mut conn = self.conn.clone();
-        
+
         let result: HashMap<String, String> = redis::cmd("HGETALL")
             .arg(&key)
             .query_async(&mut conn)
             .await?;
-        
+
         Ok(result)
     }
 
     pub async fn get_model_workers(&self, model_id: &Uuid) -> Result<Vec<String>, RedisError> {
         use crate::constants::{REDIS_MODEL_WORKERS_PREFIX, REDIS_MODEL_WORKERS_SUFFIX};
-        
+
         let key = format!(
             "{}:{}:{}",
-            REDIS_MODEL_WORKERS_PREFIX,
-            model_id,
-            REDIS_MODEL_WORKERS_SUFFIX
+            REDIS_MODEL_WORKERS_PREFIX, model_id, REDIS_MODEL_WORKERS_SUFFIX
         );
         let mut conn = self.conn.clone();
-        
+
         let workers: Vec<(i64, String)> = redis::cmd("ZRANGE")
             .arg(&key)
             .arg(0)
@@ -641,46 +673,58 @@ impl RedisClient {
             .arg("WITHSCORES")
             .query_async(&mut conn)
             .await?;
-        
-        let result: Vec<String> = workers.into_iter().map(|(_, worker_id)| worker_id).collect();
-        
+
+        let result: Vec<String> = workers
+            .into_iter()
+            .map(|(_, worker_id)| worker_id)
+            .collect();
+
         debug!("Found {} workers for model {}", result.len(), model_id);
         Ok(result)
     }
 
-    pub async fn get_best_worker_for_model(&self, model_id: &Uuid) -> Result<Option<String>, RedisError> {
+    pub async fn get_best_worker_for_model(
+        &self,
+        model_id: &Uuid,
+    ) -> Result<Option<String>, RedisError> {
         use crate::constants::{REDIS_MODEL_WORKERS_PREFIX, REDIS_MODEL_WORKERS_SUFFIX};
-        
+
         let key = format!(
             "{}:{}:{}",
-            REDIS_MODEL_WORKERS_PREFIX,
-            model_id,
-            REDIS_MODEL_WORKERS_SUFFIX
+            REDIS_MODEL_WORKERS_PREFIX, model_id, REDIS_MODEL_WORKERS_SUFFIX
         );
         let mut conn = self.conn.clone();
-        
+
         let workers: Vec<String> = redis::cmd("ZRANGE")
             .arg(&key)
             .arg(0)
             .arg(0)
             .query_async(&mut conn)
             .await?;
-        
+
         Ok(workers.into_iter().next())
     }
 
     pub async fn remove_worker_models(&self, worker_id: &str) -> Result<(), RedisError> {
-        use crate::constants::{REDIS_WORKER_MODELS_PREFIX, REDIS_WORKER_MODELS_SUFFIX, REDIS_WORKER_HEARTBEAT_SUFFIX};
-        
+        use crate::constants::{
+            REDIS_WORKER_HEARTBEAT_SUFFIX, REDIS_WORKER_MODELS_PREFIX, REDIS_WORKER_MODELS_SUFFIX,
+        };
+
         let models = self.get_worker_models(worker_id).await?;
-        
-        let models_key = format!("{}:{}:{}", REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_MODELS_SUFFIX);
-        let heartbeat_key = format!("{}:{}:{}", REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_HEARTBEAT_SUFFIX);
-        
+
+        let models_key = format!(
+            "{}:{}:{}",
+            REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_MODELS_SUFFIX
+        );
+        let heartbeat_key = format!(
+            "{}:{}:{}",
+            REDIS_WORKER_MODELS_PREFIX, worker_id, REDIS_WORKER_HEARTBEAT_SUFFIX
+        );
+
         let mut conn = self.conn.clone();
         let _: () = conn.del(&models_key).await?;
         let _: () = conn.del(&heartbeat_key).await?;
-        
+
         for model_id in models.keys() {
             let model_workers_key = format!(
                 "{}:{}:{}",
@@ -694,7 +738,7 @@ impl RedisClient {
                 .query_async(&mut conn)
                 .await?;
         }
-        
+
         debug!("Removed worker {} models", worker_id);
         Ok(())
     }
@@ -706,7 +750,7 @@ impl RedisClient {
     ) -> Result<String, RedisError> {
         let stream_key = format!("ferrinx:worker:{}:tasks", worker_id);
         let mut conn = self.conn.clone();
-        
+
         let task_id = task.id.to_string();
         let model_id = task.model_id.to_string();
         let user_id = task.user_id.to_string();
@@ -714,7 +758,7 @@ impl RedisClient {
         let priority = task.priority.to_string();
         let created_at = task.created_at.to_rfc3339();
         let inputs_json = serde_json::to_string(&task.inputs)?;
-        
+
         let entry_id: String = redis::cmd("XADD")
             .arg(&stream_key)
             .arg("*")
@@ -734,7 +778,7 @@ impl RedisClient {
             .arg(&inputs_json)
             .query_async(&mut conn)
             .await?;
-        
+
         debug!("Pushed task {} to worker stream {}", task.id, stream_key);
         Ok(entry_id)
     }
@@ -749,7 +793,7 @@ pub fn hash_api_key(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_hash_api_key() {
         let key = "frx_sk_test123";
@@ -757,7 +801,7 @@ mod tests {
         assert_eq!(hash.len(), 64);
         assert_ne!(hash, key);
     }
-    
+
     #[test]
     fn test_redis_config_default() {
         let config = RedisPoolConfig::default();

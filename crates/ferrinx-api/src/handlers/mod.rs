@@ -4,15 +4,13 @@ pub mod auth;
 pub mod inference;
 pub mod model;
 
-use axum::{extract::State, Json};
 use crate::{
     dto::{ApiResponse, HealthResponse, ReadyResponse},
     routes::AppState,
 };
+use axum::{extract::State, Json};
 
-pub async fn health(
-    State(state): State<AppState>,
-) -> Json<ApiResponse<HealthResponse>> {
+pub async fn health(State(state): State<AppState>) -> Json<ApiResponse<HealthResponse>> {
     let uptime_secs = state.start_time.elapsed().as_secs();
     Json(ApiResponse::success(HealthResponse {
         status: "ok".to_string(),
@@ -21,9 +19,7 @@ pub async fn health(
     }))
 }
 
-pub async fn ready(
-    State(state): State<AppState>,
-) -> Json<ApiResponse<ReadyResponse>> {
+pub async fn ready(State(state): State<AppState>) -> Json<ApiResponse<ReadyResponse>> {
     let database = state.db.health_check().await.is_ok();
     let redis = state.redis.is_some();
     let engine = state.engine.concurrency_status().available_permits > 0;
@@ -35,9 +31,7 @@ pub async fn ready(
     }))
 }
 
-pub async fn metrics(
-    State(state): State<AppState>,
-) -> Json<ApiResponse<serde_json::Value>> {
+pub async fn metrics(State(state): State<AppState>) -> Json<ApiResponse<serde_json::Value>> {
     let cache_status = state.engine.cache_status().await;
     let concurrency_status = state.engine.concurrency_status();
 

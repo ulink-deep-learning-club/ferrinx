@@ -168,15 +168,31 @@ impl TryFrom<ModelRow> for ModelInfo {
             file_path: row.file_path,
             file_size: row.file_size,
             storage_backend: row.storage_backend,
-            input_shapes: row.input_shapes.map(|s| serde_json::from_str(&s)).transpose()?,
-            output_shapes: row.output_shapes.map(|s| serde_json::from_str(&s)).transpose()?,
+            input_shapes: row
+                .input_shapes
+                .map(|s| serde_json::from_str(&s))
+                .transpose()?,
+            output_shapes: row
+                .output_shapes
+                .map(|s| serde_json::from_str(&s))
+                .transpose()?,
             metadata: row.metadata.map(|s| serde_json::from_str(&s)).transpose()?,
             created_at: chrono::DateTime::parse_from_rfc3339(&row.created_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("created_at {}: {}", row.created_at, e)))?,
+                .map_err(|e| {
+                    crate::error::DbError::InvalidDateTime(format!(
+                        "created_at {}: {}",
+                        row.created_at, e
+                    ))
+                })?,
             updated_at: chrono::DateTime::parse_from_rfc3339(&row.updated_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("updated_at {}: {}", row.updated_at, e)))?,
+                .map_err(|e| {
+                    crate::error::DbError::InvalidDateTime(format!(
+                        "updated_at {}: {}",
+                        row.updated_at, e
+                    ))
+                })?,
         })
     }
 }
@@ -208,7 +224,12 @@ impl TaskRepository for SqliteTaskRepository {
             .bind(task.api_key_id.to_string())
             .bind(task.status.as_str())
             .bind(serde_json::to_string(&task.inputs)?)
-            .bind(task.outputs.as_ref().map(|o| serde_json::to_string(o)).transpose()?)
+            .bind(
+                task.outputs
+                    .as_ref()
+                    .map(|o| serde_json::to_string(o))
+                    .transpose()?,
+            )
             .bind(&task.error_message)
             .bind(task.priority)
             .bind(task.retry_count)
@@ -413,14 +434,21 @@ impl TryFrom<TaskRow> for InferenceTask {
 
     fn try_from(row: TaskRow) -> crate::error::Result<Self> {
         Ok(Self {
-            id: Uuid::parse_str(&row.id)
-                .map_err(|e| crate::error::DbError::InvalidUuid(format!("task.id {}: {}", row.id, e)))?,
-            model_id: Uuid::parse_str(&row.model_id)
-                .map_err(|e| crate::error::DbError::InvalidUuid(format!("task.model_id {}: {}", row.model_id, e)))?,
-            user_id: Uuid::parse_str(&row.user_id)
-                .map_err(|e| crate::error::DbError::InvalidUuid(format!("task.user_id {}: {}", row.user_id, e)))?,
-            api_key_id: Uuid::parse_str(&row.api_key_id)
-                .map_err(|e| crate::error::DbError::InvalidUuid(format!("task.api_key_id {}: {}", row.api_key_id, e)))?,
+            id: Uuid::parse_str(&row.id).map_err(|e| {
+                crate::error::DbError::InvalidUuid(format!("task.id {}: {}", row.id, e))
+            })?,
+            model_id: Uuid::parse_str(&row.model_id).map_err(|e| {
+                crate::error::DbError::InvalidUuid(format!("task.model_id {}: {}", row.model_id, e))
+            })?,
+            user_id: Uuid::parse_str(&row.user_id).map_err(|e| {
+                crate::error::DbError::InvalidUuid(format!("task.user_id {}: {}", row.user_id, e))
+            })?,
+            api_key_id: Uuid::parse_str(&row.api_key_id).map_err(|e| {
+                crate::error::DbError::InvalidUuid(format!(
+                    "task.api_key_id {}: {}",
+                    row.api_key_id, e
+                ))
+            })?,
             status: TaskStatus::from_str(&row.status)
                 .ok_or_else(|| crate::error::DbError::InvalidStatus(row.status.clone()))?,
             inputs: serde_json::from_str(&row.inputs)?,
@@ -430,17 +458,38 @@ impl TryFrom<TaskRow> for InferenceTask {
             retry_count: row.retry_count,
             created_at: chrono::DateTime::parse_from_rfc3339(&row.created_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("task.created_at {}: {}", row.created_at, e)))?,
-            started_at: row.started_at.map(|t| {
-                chrono::DateTime::parse_from_rfc3339(&t)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .map_err(|e| crate::error::DbError::InvalidDateTime(format!("task.started_at {}: {}", t, e)))
-            }).transpose()?,
-            completed_at: row.completed_at.map(|t| {
-                chrono::DateTime::parse_from_rfc3339(&t)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .map_err(|e| crate::error::DbError::InvalidDateTime(format!("task.completed_at {}: {}", t, e)))
-            }).transpose()?,
+                .map_err(|e| {
+                    crate::error::DbError::InvalidDateTime(format!(
+                        "task.created_at {}: {}",
+                        row.created_at, e
+                    ))
+                })?,
+            started_at: row
+                .started_at
+                .map(|t| {
+                    chrono::DateTime::parse_from_rfc3339(&t)
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .map_err(|e| {
+                            crate::error::DbError::InvalidDateTime(format!(
+                                "task.started_at {}: {}",
+                                t, e
+                            ))
+                        })
+                })
+                .transpose()?,
+            completed_at: row
+                .completed_at
+                .map(|t| {
+                    chrono::DateTime::parse_from_rfc3339(&t)
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .map_err(|e| {
+                            crate::error::DbError::InvalidDateTime(format!(
+                                "task.completed_at {}: {}",
+                                t, e
+                            ))
+                        })
+                })
+                .transpose()?,
         })
     }
 }
@@ -594,10 +643,7 @@ impl ApiKeyRepository for SqliteApiKeyRepository {
 
         let query = "DELETE FROM api_keys WHERE is_temporary = 1 AND expires_at < ?1";
 
-        let result = sqlx::query(query)
-            .bind(now)
-            .execute(&self.pool)
-            .await?;
+        let result = sqlx::query(query).bind(now).execute(&self.pool).await?;
 
         Ok(result.rows_affected())
     }
@@ -623,31 +669,62 @@ impl TryFrom<ApiKeyRow> for ApiKeyRecord {
 
     fn try_from(row: ApiKeyRow) -> crate::error::Result<Self> {
         Ok(Self {
-            id: Uuid::parse_str(&row.id)
-                .map_err(|e| crate::error::DbError::InvalidUuid(format!("api_key.id {}: {}", row.id, e)))?,
-            user_id: Uuid::parse_str(&row.user_id)
-                .map_err(|e| crate::error::DbError::InvalidUuid(format!("api_key.user_id {}: {}", row.user_id, e)))?,
+            id: Uuid::parse_str(&row.id).map_err(|e| {
+                crate::error::DbError::InvalidUuid(format!("api_key.id {}: {}", row.id, e))
+            })?,
+            user_id: Uuid::parse_str(&row.user_id).map_err(|e| {
+                crate::error::DbError::InvalidUuid(format!(
+                    "api_key.user_id {}: {}",
+                    row.user_id, e
+                ))
+            })?,
             key_hash: row.key_hash,
             name: row.name,
             permissions: serde_json::from_str(&row.permissions)?,
             is_active: row.is_active,
             is_temporary: row.is_temporary,
-            last_used_at: row.last_used_at.map(|t| {
-                chrono::DateTime::parse_from_rfc3339(&t)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .map_err(|e| crate::error::DbError::InvalidDateTime(format!("api_key.last_used_at {}: {}", t, e)))
-            }).transpose()?,
-            expires_at: row.expires_at.map(|t| {
-                chrono::DateTime::parse_from_rfc3339(&t)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .map_err(|e| crate::error::DbError::InvalidDateTime(format!("api_key.expires_at {}: {}", t, e)))
-            }).transpose()?,
+            last_used_at: row
+                .last_used_at
+                .map(|t| {
+                    chrono::DateTime::parse_from_rfc3339(&t)
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .map_err(|e| {
+                            crate::error::DbError::InvalidDateTime(format!(
+                                "api_key.last_used_at {}: {}",
+                                t, e
+                            ))
+                        })
+                })
+                .transpose()?,
+            expires_at: row
+                .expires_at
+                .map(|t| {
+                    chrono::DateTime::parse_from_rfc3339(&t)
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .map_err(|e| {
+                            crate::error::DbError::InvalidDateTime(format!(
+                                "api_key.expires_at {}: {}",
+                                t, e
+                            ))
+                        })
+                })
+                .transpose()?,
             created_at: chrono::DateTime::parse_from_rfc3339(&row.created_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("api_key.created_at {}: {}", row.created_at, e)))?,
+                .map_err(|e| {
+                    crate::error::DbError::InvalidDateTime(format!(
+                        "api_key.created_at {}: {}",
+                        row.created_at, e
+                    ))
+                })?,
             updated_at: chrono::DateTime::parse_from_rfc3339(&row.updated_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("api_key.updated_at {}: {}", row.updated_at, e)))?,
+                .map_err(|e| {
+                    crate::error::DbError::InvalidDateTime(format!(
+                        "api_key.updated_at {}: {}",
+                        row.updated_at, e
+                    ))
+                })?,
         })
     }
 }
@@ -805,9 +882,7 @@ impl UserRepository for SqliteUserRepository {
     async fn exists(&self) -> Result<bool> {
         let query = "SELECT 1 FROM users LIMIT 1";
 
-        let result: Option<(i32,)> = sqlx::query_as(query)
-            .fetch_optional(&self.pool)
-            .await?;
+        let result: Option<(i32,)> = sqlx::query_as(query).fetch_optional(&self.pool).await?;
 
         Ok(result.is_some())
     }
@@ -829,8 +904,9 @@ impl TryFrom<UserRow> for User {
 
     fn try_from(row: UserRow) -> crate::error::Result<Self> {
         Ok(Self {
-            id: Uuid::parse_str(&row.id)
-                .map_err(|e| crate::error::DbError::InvalidUuid(format!("user.id {}: {}", row.id, e)))?,
+            id: Uuid::parse_str(&row.id).map_err(|e| {
+                crate::error::DbError::InvalidUuid(format!("user.id {}: {}", row.id, e))
+            })?,
             username: row.username,
             password_hash: row.password_hash,
             role: match row.role.as_str() {
@@ -840,10 +916,20 @@ impl TryFrom<UserRow> for User {
             is_active: row.is_active,
             created_at: chrono::DateTime::parse_from_rfc3339(&row.created_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("user.created_at {}: {}", row.created_at, e)))?,
+                .map_err(|e| {
+                    crate::error::DbError::InvalidDateTime(format!(
+                        "user.created_at {}: {}",
+                        row.created_at, e
+                    ))
+                })?,
             updated_at: chrono::DateTime::parse_from_rfc3339(&row.updated_at)
                 .map(|dt| dt.with_timezone(&Utc))
-                .map_err(|e| crate::error::DbError::InvalidDateTime(format!("user.updated_at {}: {}", row.updated_at, e)))?,
+                .map_err(|e| {
+                    crate::error::DbError::InvalidDateTime(format!(
+                        "user.updated_at {}: {}",
+                        row.updated_at, e
+                    ))
+                })?,
         })
     }
 }

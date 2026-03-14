@@ -1,5 +1,6 @@
 //
-#[path = "common/mod.rs"] mod common;
+#[path = "common/mod.rs"]
+mod common;
 
 use std::io::Write;
 use tempfile::NamedTempFile;

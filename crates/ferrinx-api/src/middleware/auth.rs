@@ -71,10 +71,7 @@ async fn validate_api_key(key: &str, state: &AppState) -> Result<ApiKeyInfo, Api
 fn is_public_path(path: &str) -> bool {
     matches!(
         path,
-        "/api/v1/health"
-            | "/api/v1/ready"
-            | "/api/v1/bootstrap"
-            | "/api/v1/auth/login"
+        "/api/v1/health" | "/api/v1/ready" | "/api/v1/bootstrap" | "/api/v1/auth/login"
     )
 }
 
@@ -139,46 +136,86 @@ mod tests {
     fn test_check_permission_admin() {
         let api_key = create_test_api_key(true, false, false);
         assert!(check_permission(&api_key, "/api/v1/models", &Method::GET));
-        assert!(check_permission(&api_key, "/api/v1/models/123", &Method::DELETE));
-        assert!(check_permission(&api_key, "/api/v1/inference", &Method::POST));
-        assert!(check_permission(&api_key, "/api/v1/admin/users", &Method::GET));
+        assert!(check_permission(
+            &api_key,
+            "/api/v1/models/123",
+            &Method::DELETE
+        ));
+        assert!(check_permission(
+            &api_key,
+            "/api/v1/inference",
+            &Method::POST
+        ));
+        assert!(check_permission(
+            &api_key,
+            "/api/v1/admin/users",
+            &Method::GET
+        ));
     }
 
     #[test]
     fn test_check_permission_non_admin_admin_path() {
         let api_key = create_test_api_key(false, true, true);
-        assert!(!check_permission(&api_key, "/api/v1/admin/users", &Method::GET));
+        assert!(!check_permission(
+            &api_key,
+            "/api/v1/admin/users",
+            &Method::GET
+        ));
     }
 
     #[test]
     fn test_check_permission_delete_model() {
         let api_key_with_delete = create_test_api_key(false, true, false);
         let api_key_without_delete = create_test_api_key(false, false, false);
-        
-        assert!(check_permission(&api_key_with_delete, "/api/v1/models/123", &Method::DELETE));
-        assert!(!check_permission(&api_key_without_delete, "/api/v1/models/123", &Method::DELETE));
+
+        assert!(check_permission(
+            &api_key_with_delete,
+            "/api/v1/models/123",
+            &Method::DELETE
+        ));
+        assert!(!check_permission(
+            &api_key_without_delete,
+            "/api/v1/models/123",
+            &Method::DELETE
+        ));
     }
 
     #[test]
     fn test_check_permission_inference() {
         let api_key_with_inference = create_test_api_key(false, false, true);
         let api_key_without_inference = create_test_api_key(false, false, false);
-        
-        assert!(check_permission(&api_key_with_inference, "/api/v1/inference", &Method::POST));
-        assert!(!check_permission(&api_key_without_inference, "/api/v1/inference", &Method::POST));
+
+        assert!(check_permission(
+            &api_key_with_inference,
+            "/api/v1/inference",
+            &Method::POST
+        ));
+        assert!(!check_permission(
+            &api_key_without_inference,
+            "/api/v1/inference",
+            &Method::POST
+        ));
     }
 
     #[test]
     fn test_check_permission_read_models() {
         let api_key = create_test_api_key(false, false, false);
         assert!(check_permission(&api_key, "/api/v1/models", &Method::GET));
-        assert!(check_permission(&api_key, "/api/v1/models/123", &Method::GET));
+        assert!(check_permission(
+            &api_key,
+            "/api/v1/models/123",
+            &Method::GET
+        ));
     }
 
     #[test]
     fn test_check_permission_write_models() {
         let api_key = create_test_api_key(false, false, false);
         assert!(check_permission(&api_key, "/api/v1/models", &Method::POST));
-        assert!(check_permission(&api_key, "/api/v1/models/123", &Method::PUT));
+        assert!(check_permission(
+            &api_key,
+            "/api/v1/models/123",
+            &Method::PUT
+        ));
     }
 }

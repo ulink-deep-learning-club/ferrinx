@@ -27,8 +27,9 @@ pub async fn handle_auth(
                 Some(p) => p,
                 None => {
                     if atty::is(atty::Stream::Stdin) {
-                        rpassword::prompt_password("Password: ")
-                            .map_err(|_| CliError::InvalidInput("Failed to read password".to_string()))?
+                        rpassword::prompt_password("Password: ").map_err(|_| {
+                            CliError::InvalidInput("Failed to read password".to_string())
+                        })?
                     } else {
                         let mut input = String::new();
                         std::io::stdin().read_line(&mut input)?;
@@ -50,7 +51,8 @@ pub async fn handle_auth(
             println!("API key saved to configuration");
         }
         AuthCommands::Logout => {
-            let _response: serde_json::Value = client.post("/auth/logout", &serde_json::json!({})).await?;
+            let _response: serde_json::Value =
+                client.post("/auth/logout", &serde_json::json!({})).await?;
 
             config.api_key = None;
             config.save()?;

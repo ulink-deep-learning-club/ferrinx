@@ -92,8 +92,8 @@ pub async fn bootstrap(
 
     // Generate a secure random password for bootstrap admin
     let admin_password = ferrinx_common::generate_secure_password(16);
-    let password_hash = ferrinx_common::hash_password(&admin_password)
-        .map_err(|_| ApiError::InternalError)?;
+    let password_hash =
+        ferrinx_common::hash_password(&admin_password).map_err(|_| ApiError::InternalError)?;
 
     let admin_id = Uuid::new_v4();
     let admin_username = "admin".to_string();

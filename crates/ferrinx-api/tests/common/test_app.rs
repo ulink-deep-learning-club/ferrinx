@@ -25,7 +25,10 @@ pub fn models_dir() -> std::path::PathBuf {
 }
 
 pub fn hanzi_tiny_model_path() -> String {
-    models_dir().join("hanzi_tiny.onnx").to_string_lossy().to_string()
+    models_dir()
+        .join("hanzi_tiny.onnx")
+        .to_string_lossy()
+        .to_string()
 }
 
 pub struct TestApp {
@@ -63,7 +66,8 @@ impl TestApp {
         );
         let loader = Arc::new(ModelLoader::new(storage.clone()));
         let rate_limiter = Arc::new(RateLimiter::new(1000, 60));
-        let engine = Arc::new(InferenceEngine::new(&self.config.onnx).expect("Failed to create engine"));
+        let engine =
+            Arc::new(InferenceEngine::new(&self.config.onnx).expect("Failed to create engine"));
 
         let state = AppState {
             config: self.config.clone(),

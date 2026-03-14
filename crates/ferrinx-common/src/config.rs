@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::path::PathBuf;
 
-use crate::utils::expand_env_vars;
+use crate::utils::expand_env_vars_with_default;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -49,8 +49,21 @@ pub enum RateLimitAlgorithm {
     SlidingWindow,
 }
 
+fn default_api_key_secret() -> String {
+    std::env::var("FERRINX_API_KEY_SECRET").unwrap_or_default()
+}
+
+fn default_database_url() -> String {
+    std::env::var("FERRINX_DATABASE_URL").unwrap_or_default()
+}
+
+fn default_redis_url() -> String {
+    std::env::var("FERRINX_REDIS_URL").unwrap_or_default()
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AuthConfig {
+    #[serde(default = "default_api_key_secret")]
     pub api_key_secret: String,
     pub api_key_prefix: String,
     pub max_keys_per_user: usize,
@@ -61,6 +74,7 @@ pub struct AuthConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct DatabaseConfig {
     pub backend: DatabaseBackend,
+    #[serde(default = "default_database_url")]
     pub url: String,
     pub max_connections: u32,
     pub run_migrations: bool,
@@ -75,6 +89,7 @@ pub enum DatabaseBackend {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct RedisConfig {
+    #[serde(default = "default_redis_url")]
     pub url: String,
     pub pool_size: u32,
     pub stream_key: String,
@@ -108,6 +123,8 @@ pub struct OnnxConfig {
     pub preload: Vec<String>,
     pub execution_provider: ExecutionProvider,
     pub gpu_device_id: u32,
+    #[serde(default)]
+    pub dynamic_lib_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -118,6 +135,7 @@ pub enum ExecutionProvider {
     TensorRT,
     CoreML,
     ROCm,
+    WebGPU,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -182,6 +200,8 @@ pub struct ModelValidationConfig {
 
 impl Config {
     pub fn from_file(path: &str) -> Result<Self, crate::error::CommonError> {
+        let _ = dotenvy::dotenv();
+
         let config = config::Config::builder()
             .add_source(config::File::with_name(path))
             .add_source(config::Environment::with_prefix("FERRINX").separator("__"))
@@ -189,9 +209,11 @@ impl Config {
 
         let mut config: Config = config.try_deserialize()?;
 
-        config.database.url = expand_env_vars(&config.database.url);
-        config.redis.url = expand_env_vars(&config.redis.url);
-        config.auth.api_key_secret = expand_env_vars(&config.auth.api_key_secret);
+        config.database.url =
+            expand_env_vars_with_default(&config.database.url, "sqlite://./data/ferrinx.db");
+        config.redis.url = expand_env_vars_with_default(&config.redis.url, "");
+        config.auth.api_key_secret =
+            expand_env_vars_with_default(&config.auth.api_key_secret, "dev-secret-key");
 
         Ok(config)
     }
@@ -252,6 +274,7 @@ impl Config {
                 preload: vec![],
                 execution_provider: ExecutionProvider::CPU,
                 gpu_device_id: 0,
+                dynamic_lib_path: None,
             },
             logging: LoggingConfig {
                 level: "info".to_string(),

@@ -92,17 +92,19 @@ async fn handle_bootstrap(client: &HttpClient, config: &mut CliConfig) -> Result
         password: String,
     }
 
-    let response: BootstrapResponse = match client.post_raw("/bootstrap", serde_json::json!({})).await {
-        Ok(res) => res,
-        Err(e) => {
-            if e.to_string().contains("System already initialized") {
-                return Err(CliError::InvalidInput(
-                    "System is already initialized. Run 'ferrinx auth login' to authenticate.".to_string()
-                ));
+    let response: BootstrapResponse =
+        match client.post_raw("/bootstrap", serde_json::json!({})).await {
+            Ok(res) => res,
+            Err(e) => {
+                if e.to_string().contains("System already initialized") {
+                    return Err(CliError::InvalidInput(
+                        "System is already initialized. Run 'ferrinx auth login' to authenticate."
+                            .to_string(),
+                    ));
+                }
+                return Err(e);
             }
-            return Err(e);
-        }
-    };
+        };
 
     println!("✓ System initialized successfully!\n");
     println!("  Admin user: {}", response.username);

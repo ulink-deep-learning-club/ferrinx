@@ -34,12 +34,7 @@ pub trait RedisClient: Send + Sync {
 
     async fn xack(&self, stream: &str, group: &str, entry_id: &str) -> Result<()>;
 
-    async fn xpending(
-        &self,
-        stream: &str,
-        group: &str,
-        count: usize,
-    ) -> Result<Vec<PendingInfo>>;
+    async fn xpending(&self, stream: &str, group: &str, count: usize) -> Result<Vec<PendingInfo>>;
 
     async fn xclaim(
         &self,
@@ -50,18 +45,9 @@ pub trait RedisClient: Send + Sync {
         entry_ids: &[&str],
     ) -> Result<Vec<StreamEntry>>;
 
-    async fn xadd(
-        &self,
-        stream: &str,
-        data: &HashMap<String, String>,
-    ) -> Result<String>;
+    async fn xadd(&self, stream: &str, data: &HashMap<String, String>) -> Result<String>;
 
-    async fn set_json(
-        &self,
-        key: &str,
-        value: &serde_json::Value,
-        ttl: Duration,
-    ) -> Result<()>;
+    async fn set_json(&self, key: &str, value: &serde_json::Value, ttl: Duration) -> Result<()>;
 
     async fn get_json(&self, key: &str) -> Result<Option<serde_json::Value>>;
 
@@ -71,7 +57,11 @@ pub trait RedisClient: Send + Sync {
 
     async fn set_worker_heartbeat(&self, worker_id: &str) -> Result<()>;
 
-    async fn set_worker_models(&self, worker_id: &str, models: &HashMap<String, String>) -> Result<()>;
+    async fn set_worker_models(
+        &self,
+        worker_id: &str,
+        models: &HashMap<String, String>,
+    ) -> Result<()>;
 
     async fn get_worker_models(&self, worker_id: &str) -> Result<HashMap<String, String>>;
 
@@ -91,9 +81,9 @@ pub fn create_redis_client(url: &str) -> Result<std::sync::Arc<dyn RedisClient>>
     };
 
     let rt = tokio::runtime::Handle::current();
-    let client = rt.block_on(async {
-        ferrinx_common::RedisClient::new(config).await
-    }).map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))?;
+    let client = rt
+        .block_on(async { ferrinx_common::RedisClient::new(config).await })
+        .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))?;
 
     Ok(std::sync::Arc::new(RealRedisClientAdapter(client)))
 }
@@ -110,7 +100,10 @@ impl RedisClient for RealRedisClientAdapter {
         _count: usize,
         _block_ms: u64,
     ) -> Result<Option<Vec<StreamEntry>>> {
-        let task = self.0.consume_task(consumer).await
+        let task = self
+            .0
+            .consume_task(consumer)
+            .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))?;
 
         Ok(task.map(|t| {
@@ -134,7 +127,9 @@ impl RedisClient for RealRedisClientAdapter {
     }
 
     async fn xack(&self, stream: &str, _group: &str, entry_id: &str) -> Result<()> {
-        self.0.ack_task(stream, entry_id).await
+        self.0
+            .ack_task(stream, entry_id)
+            .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))
     }
 
@@ -155,27 +150,33 @@ impl RedisClient for RealRedisClientAdapter {
         _min_idle_ms: i64,
         _entry_ids: &[&str],
     ) -> Result<Vec<StreamEntry>> {
-        let tasks = self.0.claim_pending_tasks(consumer).await
+        let tasks = self
+            .0
+            .claim_pending_tasks(consumer)
+            .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))?;
 
-        Ok(tasks.into_iter().map(|t| {
-            let mut data = std::collections::HashMap::new();
-            data.insert("task_id".to_string(), t.task_id.to_string());
-            data.insert("model_id".to_string(), t.model_id.to_string());
-            data.insert("user_id".to_string(), t.user_id.to_string());
-            data.insert("api_key_id".to_string(), t.api_key_id.to_string());
-            data.insert("priority".to_string(), t.priority.to_string());
-            data.insert("created_at".to_string(), t.created_at);
-            if let Some(inputs) = t.inputs {
-                if let Ok(json) = serde_json::to_string(&inputs) {
-                    data.insert("inputs".to_string(), json);
+        Ok(tasks
+            .into_iter()
+            .map(|t| {
+                let mut data = std::collections::HashMap::new();
+                data.insert("task_id".to_string(), t.task_id.to_string());
+                data.insert("model_id".to_string(), t.model_id.to_string());
+                data.insert("user_id".to_string(), t.user_id.to_string());
+                data.insert("api_key_id".to_string(), t.api_key_id.to_string());
+                data.insert("priority".to_string(), t.priority.to_string());
+                data.insert("created_at".to_string(), t.created_at);
+                if let Some(inputs) = t.inputs {
+                    if let Ok(json) = serde_json::to_string(&inputs) {
+                        data.insert("inputs".to_string(), json);
+                    }
                 }
-            }
-            StreamEntry {
-                id: t.entry_id,
-                data,
-            }
-        }).collect())
+                StreamEntry {
+                    id: t.entry_id,
+                    data,
+                }
+            })
+            .collect())
     }
 
     async fn xadd(
@@ -183,7 +184,9 @@ impl RedisClient for RealRedisClientAdapter {
         stream: &str,
         data: &std::collections::HashMap<String, String>,
     ) -> Result<String> {
-        self.0.xadd(stream, data).await
+        self.0
+            .xadd(stream, data)
+            .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))
     }
 
@@ -193,47 +196,69 @@ impl RedisClient for RealRedisClientAdapter {
         value: &serde_json::Value,
         ttl: std::time::Duration,
     ) -> Result<()> {
-        self.0.set_cache(key, value, ttl.as_secs()).await
+        self.0
+            .set_cache(key, value, ttl.as_secs())
+            .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))
     }
 
     async fn get_json(&self, key: &str) -> Result<Option<serde_json::Value>> {
-        self.0.get_cache(key).await
+        self.0
+            .get_cache(key)
+            .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))
     }
 
     async fn del(&self, key: &str) -> Result<()> {
-        self.0.delete_cache(key).await
+        self.0
+            .delete_cache(key)
+            .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))
     }
 
     async fn health_check(&self) -> Result<()> {
-        self.0.health_check().await
+        self.0
+            .health_check()
+            .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))
     }
 
     async fn set_worker_heartbeat(&self, worker_id: &str) -> Result<()> {
-        self.0.set_worker_heartbeat(worker_id).await
+        self.0
+            .set_worker_heartbeat(worker_id)
+            .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))
     }
 
-    async fn set_worker_models(&self, worker_id: &str, models: &HashMap<String, String>) -> Result<()> {
-        self.0.set_worker_models(worker_id, models).await
+    async fn set_worker_models(
+        &self,
+        worker_id: &str,
+        models: &HashMap<String, String>,
+    ) -> Result<()> {
+        self.0
+            .set_worker_models(worker_id, models)
+            .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))
     }
 
     async fn get_worker_models(&self, worker_id: &str) -> Result<HashMap<String, String>> {
-        self.0.get_worker_models(worker_id).await
+        self.0
+            .get_worker_models(worker_id)
+            .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))
     }
 
     async fn get_model_workers(&self, model_id: &Uuid) -> Result<Vec<String>> {
-        self.0.get_model_workers(model_id).await
+        self.0
+            .get_model_workers(model_id)
+            .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))
     }
 
     async fn remove_worker_models(&self, worker_id: &str) -> Result<()> {
-        self.0.remove_worker_models(worker_id).await
+        self.0
+            .remove_worker_models(worker_id)
+            .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))
     }
 }

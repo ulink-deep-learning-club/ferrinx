@@ -1,16 +1,8 @@
-use axum::{
-    body::Body,
-    http::Request,
-    middleware::Next,
-    response::Response,
-};
+use axum::{body::Body, http::Request, middleware::Next, response::Response};
 use tracing::{info, Instrument};
 use uuid::Uuid;
 
-pub async fn logging_middleware(
-    req: Request<Body>,
-    next: Next,
-) -> Response {
+pub async fn logging_middleware(req: Request<Body>, next: Next) -> Response {
     let request_id = Uuid::new_v4().to_string();
     let method = req.method().clone();
     let uri = req.uri().clone();

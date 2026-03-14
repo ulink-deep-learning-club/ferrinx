@@ -10,6 +10,8 @@ default = []
 cuda = ["ort/cuda"]
 rocm = ["ort/rocm"]
 coreml = ["ort/coreml"]
+webgpu = ["ort/webgpu"]
+load-dynamic = ["ort/load-dynamic"]
 
 [dependencies]
 ferrinx-common = { path = "../ferrinx-common" }
@@ -33,19 +35,24 @@ tempfile = "3"
 
 [dependencies.ort]
 version = "=2.0.0-rc.12"
-default-features = true
+features = [
+    "std",
+    "ndarray",
+    "download-binaries",
+    "webgpu"
+]
 
 [target.'cfg(target_os = "linux")'.dependencies.ort]
 version = "=2.0.0-rc.12"
-features = ["cuda", "rocm"]
+features = ["download-binaries", "webgpu"]
 
 [target.'cfg(target_os = "windows")'.dependencies.ort]
 version = "=2.0.0-rc.12"
-features = ["cuda", "rocm"]
+features = ["download-binaries", "webgpu"]
 
 [target.'cfg(target_os = "macos")'.dependencies.ort]
 version = "=2.0.0-rc.12"
-features = ["coreml"]
+features = ["download-binaries", "coreml"]
 
 [dev-dependencies]
 tempfile = "3"

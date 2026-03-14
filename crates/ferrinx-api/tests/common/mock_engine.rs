@@ -45,10 +45,7 @@ impl MockInferenceEngine {
 
     pub fn set_default_response(&self) {
         let output = InferenceOutput {
-            outputs: HashMap::from([(
-                "output".to_string(),
-                serde_json::json!([1.0, 2.0, 3.0]),
-            )]),
+            outputs: HashMap::from([("output".to_string(), serde_json::json!([1.0, 2.0, 3.0]))]),
             latency_ms: 10,
         };
         let mut responses = futures::executor::block_on(self.responses.lock());
@@ -99,10 +96,7 @@ impl MockInferenceEngine {
             Ok(output.clone())
         } else {
             Ok(InferenceOutput {
-                outputs: HashMap::from([(
-                    "output".to_string(),
-                    serde_json::json!([0.0]),
-                )]),
+                outputs: HashMap::from([("output".to_string(), serde_json::json!([0.0]))]),
                 latency_ms: 1,
             })
         }

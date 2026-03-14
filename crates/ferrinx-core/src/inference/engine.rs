@@ -11,7 +11,10 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::error::{CoreError, Result};
-use ferrinx_common::{ExecutionProvider, InferenceInput, InferenceOutput, OnnxConfig, Tensor as FerrinxTensor, TensorDataType};
+use ferrinx_common::{
+    ExecutionProvider, InferenceInput, InferenceOutput, OnnxConfig, Tensor as FerrinxTensor,
+    TensorDataType,
+};
 
 pub type CacheEvictCallback = Arc<dyn Fn(Uuid) + Send + Sync>;
 pub type CacheLoadCallback = Arc<dyn Fn(Uuid) + Send + Sync>;
@@ -48,8 +51,9 @@ pub struct ConcurrencyStatus {
 
 impl InferenceEngine {
     pub fn new(config: &OnnxConfig) -> Result<Self> {
-        let cache_size = NonZeroUsize::new(config.cache_size).unwrap_or(NonZeroUsize::new(5).unwrap());
-        
+        let cache_size =
+            NonZeroUsize::new(config.cache_size).unwrap_or(NonZeroUsize::new(5).unwrap());
+
         Ok(Self {
             state: Arc::new(Mutex::new(CacheState {
                 cache: LruCache::new(cache_size),
@@ -106,19 +110,21 @@ impl InferenceEngine {
                 on_load,
                 execution_provider,
                 gpu_device_id,
-            ).await?;
+            )
+            .await?;
 
             let input_tensors = prepare_inputs(&session, &inputs).await?;
-            
+
             let mut session_guard = session.lock().await;
             let ort_inputs: HashMap<String, ort::value::Value> = input_tensors
                 .into_iter()
                 .map(|(k, v)| (k, v.into_dyn()))
                 .collect();
-                
-            let ort_outputs = session_guard.run(ort_inputs)
+
+            let ort_outputs = session_guard
+                .run(ort_inputs)
                 .map_err(|e| CoreError::InferenceFailed(e.to_string()))?;
-                
+
             parse_outputs(ort_outputs)
         })
         .await
@@ -134,25 +140,25 @@ impl InferenceEngine {
 
     pub async fn preload_models(&self, models: &[(Uuid, String)]) -> Result<()> {
         info!("Preloading {} models into cache", models.len());
-        
+
         for (model_id, model_path) in models {
             match self.preload_model(*model_id, model_path).await {
                 Ok(_) => info!("Preloaded model {} from {}", model_id, model_path),
                 Err(e) => warn!("Failed to preload model {}: {}", model_id, e),
             }
         }
-        
+
         Ok(())
     }
 
     async fn preload_model(&self, model_id: Uuid, model_path: &str) -> Result<()> {
         let mut state_guard = self.state.lock().await;
-        
+
         if state_guard.cache.contains(&model_id) {
             debug!("Model {} already in cache, skipping preload", model_id);
             return Ok(());
         }
-        
+
         if state_guard.loading.contains(&model_id) {
             debug!("Model {} already being loaded, skipping preload", model_id);
             return Ok(());
@@ -160,7 +166,10 @@ impl InferenceEngine {
 
         if state_guard.cache.len() >= state_guard.cache.cap().get() {
             let (evicted_id, _) = state_guard.cache.pop_lru().unwrap();
-            debug!("Evicting model {} from cache to make room for preload", evicted_id);
+            debug!(
+                "Evicting model {} from cache to make room for preload",
+                evicted_id
+            );
             if let Some(ref callback) = self.on_evict {
                 callback(evicted_id);
             }
@@ -172,12 +181,12 @@ impl InferenceEngine {
         let on_load = self.on_load.clone();
         let execution_provider = self.execution_provider.clone();
         let gpu_device_id = self.gpu_device_id;
-        
+
         drop(state_guard);
-        
+
         let load_result = tokio::task::spawn_blocking(move || {
-            let builder = Session::builder()
-                .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?;
+            let builder =
+                Session::builder().map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?;
 
             let mut builder = match execution_provider {
                 ExecutionProvider::CPU => builder,
@@ -185,11 +194,9 @@ impl InferenceEngine {
                     #[cfg(any(target_os = "linux", target_os = "windows"))]
                     {
                         builder
-                            .with_execution_providers([
-                                ort::ep::CUDA::default()
-                                    .with_device_id(gpu_device_id)
-                                    .build()
-                            ])
+                            .with_execution_providers([ort::ep::CUDA::default()
+                                .with_device_id(gpu_device_id.try_into().unwrap())
+                                .build()])
                             .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
                     }
                     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -202,11 +209,9 @@ impl InferenceEngine {
                     #[cfg(any(target_os = "linux", target_os = "windows"))]
                     {
                         builder
-                            .with_execution_providers([
-                                ort::ep::TensorRT::default()
-                                    .with_device_id(gpu_device_id)
-                                    .build()
-                            ])
+                            .with_execution_providers([ort::ep::TensorRT::default()
+                                .with_device_id(gpu_device_id.try_into().unwrap())
+                                .build()])
                             .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
                     }
                     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -219,9 +224,7 @@ impl InferenceEngine {
                     #[cfg(target_os = "macos")]
                     {
                         builder
-                            .with_execution_providers([
-                                ort::ep::CoreML::default().build()
-                            ])
+                            .with_execution_providers([ort::ep::CoreML::default().build()])
                             .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
                     }
                     #[cfg(not(target_os = "macos"))]
@@ -233,11 +236,9 @@ impl InferenceEngine {
                     #[cfg(target_os = "linux")]
                     {
                         builder
-                            .with_execution_providers([
-                                ort::ep::ROCm::default()
-                                    .with_device_id(gpu_device_id)
-                                    .build()
-                            ])
+                            .with_execution_providers([ort::ep::ROCm::default()
+                                .with_device_id(gpu_device_id.try_into().unwrap())
+                                .build()])
                             .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
                     }
                     #[cfg(not(target_os = "linux"))]
@@ -246,6 +247,9 @@ impl InferenceEngine {
                         builder
                     }
                 }
+                ExecutionProvider::WebGPU => builder
+                    .with_execution_providers([ort::ep::WebGPU::default().build()])
+                    .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?,
             };
 
             builder
@@ -257,12 +261,12 @@ impl InferenceEngine {
 
         let mut state_guard = self.state.lock().await;
         state_guard.loading.remove(&model_id);
-        
+
         match load_result {
             Ok(session) => {
                 let session = Arc::new(tokio::sync::Mutex::new(session));
                 state_guard.cache.put(model_id, session);
-                
+
                 if let Some(ref callback) = on_load {
                     callback(model_id);
                 }
@@ -275,13 +279,13 @@ impl InferenceEngine {
     pub async fn clear_cache(&self) {
         let mut state_guard = self.state.lock().await;
         let evicted_count = state_guard.cache.len();
-        
+
         if let Some(ref callback) = self.on_evict {
             for (model_id, _) in state_guard.cache.iter() {
                 callback(*model_id);
             }
         }
-        
+
         state_guard.cache.clear();
         state_guard.loading.clear();
         info!("Cleared {} models from cache", evicted_count);
@@ -318,22 +322,25 @@ impl InferenceEngine {
     ) -> Result<CachedSession> {
         loop {
             let mut state_guard = state.lock().await;
-            
+
             if let Some(session) = state_guard.cache.get(&model_id) {
                 debug!("Cache hit for model {}", model_id);
                 return Ok(Arc::clone(session));
             }
-            
+
             if state_guard.loading.contains(&model_id) {
                 drop(state_guard);
                 tokio::time::sleep(Duration::from_millis(10)).await;
                 continue;
             }
-            
-            debug!("Cache miss for model {}, loading from {}", model_id, model_path);
-            
+
+            debug!(
+                "Cache miss for model {}, loading from {}",
+                model_id, model_path
+            );
+
             state_guard.loading.insert(model_id);
-            
+
             let old_evicted = if state_guard.cache.len() >= state_guard.cache.cap().get() {
                 let (evicted_id, _) = state_guard.cache.pop_lru().unwrap();
                 debug!("Evicting model {} from cache", evicted_id);
@@ -344,12 +351,12 @@ impl InferenceEngine {
             } else {
                 None
             };
-            
+
             drop(state_guard);
-            
+
             let load_result = tokio::task::spawn_blocking(move || {
-                let builder = Session::builder()
-                    .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?;
+                let builder =
+                    Session::builder().map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?;
 
                 let mut builder = match execution_provider {
                     ExecutionProvider::CPU => builder,
@@ -357,11 +364,9 @@ impl InferenceEngine {
                         #[cfg(any(target_os = "linux", target_os = "windows"))]
                         {
                             builder
-                                .with_execution_providers([
-                                    ort::ep::CUDA::default()
-                                        .with_device_id(gpu_device_id)
-                                        .build()
-                                ])
+                                .with_execution_providers([ort::ep::CUDA::default()
+                                    .with_device_id(gpu_device_id.try_into().unwrap())
+                                    .build()])
                                 .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
                         }
                         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -374,11 +379,9 @@ impl InferenceEngine {
                         #[cfg(any(target_os = "linux", target_os = "windows"))]
                         {
                             builder
-                                .with_execution_providers([
-                                    ort::ep::TensorRT::default()
-                                        .with_device_id(gpu_device_id)
-                                        .build()
-                                ])
+                                .with_execution_providers([ort::ep::TensorRT::default()
+                                    .with_device_id(gpu_device_id.try_into().unwrap())
+                                    .build()])
                                 .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
                         }
                         #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -391,9 +394,7 @@ impl InferenceEngine {
                         #[cfg(target_os = "macos")]
                         {
                             builder
-                                .with_execution_providers([
-                                    ort::ep::CoreML::default().build()
-                                ])
+                                .with_execution_providers([ort::ep::CoreML::default().build()])
                                 .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
                         }
                         #[cfg(not(target_os = "macos"))]
@@ -405,11 +406,9 @@ impl InferenceEngine {
                         #[cfg(target_os = "linux")]
                         {
                             builder
-                                .with_execution_providers([
-                                    ort::ep::ROCm::default()
-                                        .with_device_id(gpu_device_id)
-                                        .build()
-                                ])
+                                .with_execution_providers([ort::ep::ROCm::default()
+                                    .with_device_id(gpu_device_id.try_into().unwrap())
+                                    .build()])
                                 .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?
                         }
                         #[cfg(not(target_os = "linux"))]
@@ -418,6 +417,9 @@ impl InferenceEngine {
                             builder
                         }
                     }
+                    ExecutionProvider::WebGPU => builder
+                        .with_execution_providers([ort::ep::WebGPU::default().build()])
+                        .map_err(|e| CoreError::ModelLoadFailed(e.to_string()))?,
                 };
 
                 builder
@@ -426,19 +428,19 @@ impl InferenceEngine {
             })
             .await
             .map_err(|e| CoreError::BlockingTaskFailed(e.to_string()))?;
-            
+
             let mut state_guard = state.lock().await;
             state_guard.loading.remove(&model_id);
-            
+
             return match load_result {
                 Ok(session) => {
                     let session = Arc::new(tokio::sync::Mutex::new(session));
                     state_guard.cache.put(model_id, Arc::clone(&session));
-                    
+
                     if let Some(ref callback) = on_load {
                         callback(model_id);
                     }
-                    
+
                     info!(
                         "Loaded model {} into cache (evicted: {:?}, cache size: {}/{})",
                         model_id,
@@ -446,7 +448,7 @@ impl InferenceEngine {
                         state_guard.cache.len(),
                         state_guard.cache.cap().get()
                     );
-                    
+
                     Ok(session)
                 }
                 Err(e) => Err(e),
@@ -467,7 +469,7 @@ async fn prepare_inputs(
         let input_info = &session_inputs[0];
         let actual_name = input_info.name().to_string();
         let (_, input_data) = inputs.inputs.iter().next().unwrap();
-        
+
         let tensor = value_to_tensor(input_data.clone(), input_info.dtype())?;
         input_tensors.insert(actual_name, tensor);
     } else {
@@ -485,25 +487,25 @@ async fn prepare_inputs(
     Ok(input_tensors)
 }
 
-fn value_to_tensor(
-    value: serde_json::Value,
-    value_type: &ValueType,
-) -> Result<ort::value::Value> {
+fn value_to_tensor(value: serde_json::Value, value_type: &ValueType) -> Result<ort::value::Value> {
     match value_type {
         ValueType::Tensor { ty, shape, .. } => match ty {
             TensorElementType::Float32 => {
                 let (data, input_shape) = extract_f32_data(&value, shape)?;
-                let tensor: Tensor<f32> = Tensor::from_array((input_shape, data.into_boxed_slice()))?;
+                let tensor: Tensor<f32> =
+                    Tensor::from_array((input_shape, data.into_boxed_slice()))?;
                 Ok(tensor.into())
             }
             TensorElementType::Int8 => {
                 let (data, input_shape) = extract_i8_data(&value, shape)?;
-                let tensor: Tensor<i8> = Tensor::from_array((input_shape, data.into_boxed_slice()))?;
+                let tensor: Tensor<i8> =
+                    Tensor::from_array((input_shape, data.into_boxed_slice()))?;
                 Ok(tensor.into())
             }
             TensorElementType::Int64 => {
                 let (data, input_shape) = extract_i64_data(&value, shape)?;
-                let tensor: Tensor<i64> = Tensor::from_array((input_shape, data.into_boxed_slice()))?;
+                let tensor: Tensor<i64> =
+                    Tensor::from_array((input_shape, data.into_boxed_slice()))?;
                 Ok(tensor.into())
             }
             _ => Err(CoreError::UnsupportedTensorType),
@@ -512,108 +514,126 @@ fn value_to_tensor(
     }
 }
 
-fn extract_f32_data(value: &serde_json::Value, expected_shape: &[i64]) -> Result<(Vec<f32>, Vec<usize>)> {
+fn extract_f32_data(
+    value: &serde_json::Value,
+    expected_shape: &[i64],
+) -> Result<(Vec<f32>, Vec<usize>)> {
     let tensor: FerrinxTensor = serde_json::from_value(value.clone())
         .map_err(|e| CoreError::InvalidInput(format!("Expected Tensor format, got: {}", e)))?;
-    
+
     if tensor.dtype != TensorDataType::Float32 {
         return Err(CoreError::InvalidInput(format!(
             "Expected float32 tensor, got {:?}",
             tensor.dtype
         )));
     }
-    
-    let data = tensor.decode_f32()
+
+    let data = tensor
+        .decode_f32()
         .map_err(|e| CoreError::InvalidInput(format!("Failed to decode tensor: {}", e)))?;
-    
+
     let expected_shape_usize: Vec<usize> = expected_shape.iter().map(|&d| d as usize).collect();
     let tensor_shape_usize: Vec<usize> = tensor.shape.iter().map(|&d| d as usize).collect();
-    
+
     if tensor_shape_usize != expected_shape_usize {
         return Err(CoreError::InvalidInput(format!(
             "Shape mismatch: model expects {:?}, but tensor has {:?}",
             expected_shape_usize, tensor_shape_usize
         )));
     }
-    
+
     let expected_len: usize = expected_shape_usize.iter().product();
     if data.len() != expected_len {
         return Err(CoreError::InvalidInput(format!(
             "Data size mismatch: expected {} elements for shape {:?}, got {}",
-            expected_len, expected_shape_usize, data.len()
+            expected_len,
+            expected_shape_usize,
+            data.len()
         )));
     }
-    
+
     Ok((data, expected_shape_usize))
 }
 
-fn extract_i8_data(value: &serde_json::Value, expected_shape: &[i64]) -> Result<(Vec<i8>, Vec<usize>)> {
+fn extract_i8_data(
+    value: &serde_json::Value,
+    expected_shape: &[i64],
+) -> Result<(Vec<i8>, Vec<usize>)> {
     let tensor: FerrinxTensor = serde_json::from_value(value.clone())
         .map_err(|e| CoreError::InvalidInput(format!("Expected Tensor format, got: {}", e)))?;
-    
+
     if tensor.dtype != TensorDataType::Int8 {
         return Err(CoreError::InvalidInput(format!(
             "Expected int8 tensor, got {:?}",
             tensor.dtype
         )));
     }
-    
-    let data = tensor.decode_i8()
+
+    let data = tensor
+        .decode_i8()
         .map_err(|e| CoreError::InvalidInput(format!("Failed to decode tensor: {}", e)))?;
-    
+
     let expected_shape_usize: Vec<usize> = expected_shape.iter().map(|&d| d as usize).collect();
     let tensor_shape_usize: Vec<usize> = tensor.shape.iter().map(|&d| d as usize).collect();
-    
+
     if tensor_shape_usize != expected_shape_usize {
         return Err(CoreError::InvalidInput(format!(
             "Shape mismatch: model expects {:?}, but tensor has {:?}",
             expected_shape_usize, tensor_shape_usize
         )));
     }
-    
+
     let expected_len: usize = expected_shape_usize.iter().product();
     if data.len() != expected_len {
         return Err(CoreError::InvalidInput(format!(
             "Data size mismatch: expected {} elements for shape {:?}, got {}",
-            expected_len, expected_shape_usize, data.len()
+            expected_len,
+            expected_shape_usize,
+            data.len()
         )));
     }
-    
+
     Ok((data, expected_shape_usize))
 }
 
-fn extract_i64_data(value: &serde_json::Value, expected_shape: &[i64]) -> Result<(Vec<i64>, Vec<usize>)> {
+fn extract_i64_data(
+    value: &serde_json::Value,
+    expected_shape: &[i64],
+) -> Result<(Vec<i64>, Vec<usize>)> {
     let tensor: FerrinxTensor = serde_json::from_value(value.clone())
         .map_err(|e| CoreError::InvalidInput(format!("Expected Tensor format, got: {}", e)))?;
-    
+
     if tensor.dtype != TensorDataType::Int64 {
         return Err(CoreError::InvalidInput(format!(
             "Expected int64 tensor, got {:?}",
             tensor.dtype
         )));
     }
-    
-    let data = tensor.decode_i64()
+
+    let data = tensor
+        .decode_i64()
         .map_err(|e| CoreError::InvalidInput(format!("Failed to decode tensor: {}", e)))?;
-    
+
     let expected_shape_usize: Vec<usize> = expected_shape.iter().map(|&d| d as usize).collect();
     let tensor_shape_usize: Vec<usize> = tensor.shape.iter().map(|&d| d as usize).collect();
-    
+
     if tensor_shape_usize != expected_shape_usize {
         return Err(CoreError::InvalidInput(format!(
             "Shape mismatch: model expects {:?}, but tensor has {:?}",
             expected_shape_usize, tensor_shape_usize
         )));
     }
-    
+
     let expected_len: usize = expected_shape_usize.iter().product();
     if data.len() != expected_len {
         return Err(CoreError::InvalidInput(format!(
             "Data size mismatch: expected {} elements for shape {:?}, got {}",
-            expected_len, expected_shape_usize, data.len()
+            expected_len,
+            expected_shape_usize,
+            data.len()
         )));
     }
-    
+
     Ok((data, expected_shape_usize))
 }
 
@@ -667,6 +687,7 @@ mod tests {
             preload: vec![],
             execution_provider: ExecutionProvider::CPU,
             gpu_device_id: 0,
+            dynamic_lib_path: None,
         };
 
         let engine = InferenceEngine::new(&config).unwrap();
@@ -683,6 +704,7 @@ mod tests {
             preload: vec![],
             execution_provider: ExecutionProvider::CPU,
             gpu_device_id: 0,
+            dynamic_lib_path: None,
         };
 
         let engine = InferenceEngine::new(&config).unwrap();

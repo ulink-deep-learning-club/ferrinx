@@ -60,14 +60,16 @@ pub async fn handle_infer(
         } => {
             if let Some(image_path) = image {
                 let mut form_data = std::collections::HashMap::new();
-                
+
                 if let Some(id) = model_id {
                     form_data.insert("model_id".to_string(), id);
                 } else if let (Some(n), Some(v)) = (name, version) {
                     form_data.insert("name".to_string(), n);
                     form_data.insert("version".to_string(), v);
                 } else {
-                    return Err(CliError::InvalidInput("Either model_id or name+version is required".to_string()));
+                    return Err(CliError::InvalidInput(
+                        "Either model_id or name+version is required".to_string(),
+                    ));
                 }
 
                 let response: ImageInferResponse = client
@@ -96,7 +98,9 @@ pub async fn handle_infer(
                     output::print_output(&response, config.output_format)?;
                 }
             } else {
-                return Err(CliError::InvalidInput("Either --input or --image is required".to_string()));
+                return Err(CliError::InvalidInput(
+                    "Either --input or --image is required".to_string(),
+                ));
             }
         }
         InferCommands::Async {
@@ -109,14 +113,16 @@ pub async fn handle_infer(
         } => {
             if let Some(image_path) = image {
                 let mut form_data = std::collections::HashMap::new();
-                
+
                 if let Some(id) = model_id {
                     form_data.insert("model_id".to_string(), id);
                 } else if let (Some(n), Some(v)) = (name, version) {
                     form_data.insert("name".to_string(), n);
                     form_data.insert("version".to_string(), v);
                 } else {
-                    return Err(CliError::InvalidInput("Either model_id or name+version is required".to_string()));
+                    return Err(CliError::InvalidInput(
+                        "Either model_id or name+version is required".to_string(),
+                    ));
                 }
 
                 let response: ImageInferResponse = client
@@ -124,7 +130,10 @@ pub async fn handle_infer(
                     .await?;
 
                 output::print_success("Image inference completed");
-                println!("Result: {}", serde_json::to_string_pretty(&response.result)?);
+                println!(
+                    "Result: {}",
+                    serde_json::to_string_pretty(&response.result)?
+                );
                 println!("Latency: {} ms", response.latency_ms);
             } else if let Some(input_str) = input {
                 let model_id = resolve_model_id(client, model_id, name, version).await?;
@@ -145,7 +154,9 @@ pub async fn handle_infer(
                 println!("Task ID: {}", response.task_id);
                 println!("Status: {}", response.status);
             } else {
-                return Err(CliError::InvalidInput("Either --input or --image is required".to_string()));
+                return Err(CliError::InvalidInput(
+                    "Either --input or --image is required".to_string(),
+                ));
             }
         }
     }
@@ -164,8 +175,10 @@ async fn resolve_model_id(
     }
 
     let name = name.ok_or_else(|| CliError::InvalidInput("Model name is required".to_string()))?;
-    let version = version.ok_or_else(|| CliError::InvalidInput("Model version is required".to_string()))?;
+    let version =
+        version.ok_or_else(|| CliError::InvalidInput("Model version is required".to_string()))?;
 
-    let model: crate::output::ModelDetail = client.get(&format!("/models/{}/{}", name, version)).await?;
+    let model: crate::output::ModelDetail =
+        client.get(&format!("/models/{}/{}", name, version)).await?;
     Ok(model.id)
 }

@@ -36,7 +36,11 @@ impl TestDb {
     }
 
     pub fn temp_file_path(&self) -> String {
-        self._temp_file.path().to_str().expect("Invalid path").to_string()
+        self._temp_file
+            .path()
+            .to_str()
+            .expect("Invalid path")
+            .to_string()
     }
 
     pub async fn create_user(&self, username: &str, role: UserRole) -> User {
@@ -49,7 +53,11 @@ impl TestDb {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        self.db.users.save(&user).await.expect("Failed to create user");
+        self.db
+            .users
+            .save(&user)
+            .await
+            .expect("Failed to create user");
         user
     }
 
@@ -86,14 +94,27 @@ impl TestDb {
     }
 
     pub async fn create_model(&self, name: &str, version: &str) -> ModelInfo {
-        self.create_model_with_config(name, version, true, None).await
+        self.create_model_with_config(name, version, true, None)
+            .await
     }
 
-    pub async fn create_model_with_storage(&self, name: &str, version: &str, storage_path: &std::path::Path) -> ModelInfo {
-        self.create_model_with_config(name, version, true, Some(storage_path)).await
+    pub async fn create_model_with_storage(
+        &self,
+        name: &str,
+        version: &str,
+        storage_path: &std::path::Path,
+    ) -> ModelInfo {
+        self.create_model_with_config(name, version, true, Some(storage_path))
+            .await
     }
 
-    pub async fn create_model_with_config(&self, name: &str, version: &str, with_config: bool, storage_path: Option<&std::path::Path>) -> ModelInfo {
+    pub async fn create_model_with_config(
+        &self,
+        name: &str,
+        version: &str,
+        with_config: bool,
+        storage_path: Option<&std::path::Path>,
+    ) -> ModelInfo {
         // Find the model file in fixtures directory (workspace root)
         let source_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -101,7 +122,7 @@ impl TestDb {
             .parent()
             .unwrap()
             .join("tests/fixtures/models/hanzi_tiny.onnx");
-        
+
         // Copy to storage if provided, otherwise use source path
         let model_path = if let Some(storage) = storage_path {
             let models_dir = storage.join("models");
@@ -112,10 +133,8 @@ impl TestDb {
         } else {
             source_path
         };
-        
-        let file_size = std::fs::metadata(&model_path)
-            .map(|m| m.len() as i64)
-            .ok();
+
+        let file_size = std::fs::metadata(&model_path).map(|m| m.len() as i64).ok();
 
         let metadata = if with_config {
             Some(serde_json::json!({

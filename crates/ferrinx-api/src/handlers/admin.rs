@@ -38,8 +38,8 @@ pub async fn create_user(
     }
 
     let user_id = Uuid::new_v4();
-    let password_hash = ferrinx_common::hash_password(&req.password)
-        .map_err(|_| ApiError::InternalError)?;
+    let password_hash =
+        ferrinx_common::hash_password(&req.password).map_err(|_| ApiError::InternalError)?;
 
     let role = match req.role.as_deref() {
         Some("admin") => ferrinx_common::UserRole::Admin,
@@ -99,9 +99,14 @@ pub async fn delete_user(
     if user.role == ferrinx_common::UserRole::Admin {
         // Check if this is the last admin
         let all_users = state.db.users.list(None, None).await?;
-        let admin_count = all_users.iter().filter(|u| u.role == ferrinx_common::UserRole::Admin).count();
+        let admin_count = all_users
+            .iter()
+            .filter(|u| u.role == ferrinx_common::UserRole::Admin)
+            .count();
         if admin_count <= 1 {
-            return Err(ApiError::BadRequest("Cannot delete the last admin user".to_string()));
+            return Err(ApiError::BadRequest(
+                "Cannot delete the last admin user".to_string(),
+            ));
         }
     }
 
@@ -148,10 +153,8 @@ pub async fn update_user(
     }
 
     if let Some(password) = req.password {
-        updates.password_hash = Some(
-            ferrinx_common::hash_password(&password)
-                .map_err(|_| ApiError::InternalError)?
-        );
+        updates.password_hash =
+            Some(ferrinx_common::hash_password(&password).map_err(|_| ApiError::InternalError)?);
     }
 
     if let Some(role_str) = req.role {

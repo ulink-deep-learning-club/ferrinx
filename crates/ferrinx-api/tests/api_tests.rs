@@ -1,5 +1,6 @@
 //
-#[path = "common/mod.rs"] mod common;
+#[path = "common/mod.rs"]
+mod common;
 
 use ferrinx_common::{Tensor, UserRole};
 use serde_json::json;
@@ -74,7 +75,10 @@ async fn test_bootstrap_creates_admin() {
 #[tokio::test]
 async fn test_bootstrap_fails_when_users_exist() {
     let test_app = TestApp::new().await;
-    test_app.db.create_user("existing_user", UserRole::User).await;
+    test_app
+        .db
+        .create_user("existing_user", UserRole::User)
+        .await;
     let (addr, _handle) = test_app.start_server().await;
 
     let client = reqwest::Client::new();
@@ -135,7 +139,10 @@ async fn test_login_invalid_credentials() {
 async fn test_api_key_create() {
     let test_app = TestApp::new().await;
     let user = test_app.db.create_user("keyuser", UserRole::User).await;
-    let (_, raw_key) = test_app.db.create_api_key(&user, "initial-key", false).await;
+    let (_, raw_key) = test_app
+        .db
+        .create_api_key(&user, "initial-key", false)
+        .await;
     let (addr, _handle) = test_app.start_server().await;
 
     let client = reqwest::Client::new();
@@ -182,7 +189,10 @@ async fn test_api_key_list() {
 async fn test_api_key_revoke() {
     let test_app = TestApp::new().await;
     let user = test_app.db.create_user("revokeuser", UserRole::User).await;
-    let (key_id, raw_key) = test_app.db.create_api_key(&user, "key-to-revoke", false).await;
+    let (key_id, raw_key) = test_app
+        .db
+        .create_api_key(&user, "key-to-revoke", false)
+        .await;
     let (addr, _handle) = test_app.start_server().await;
 
     let client = reqwest::Client::new();
@@ -226,7 +236,10 @@ async fn test_model_registration() {
 #[tokio::test]
 async fn test_model_list() {
     let test_app = TestApp::new().await;
-    let user = test_app.db.create_user("listmodeluser", UserRole::User).await;
+    let user = test_app
+        .db
+        .create_user("listmodeluser", UserRole::User)
+        .await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "key", false).await;
     test_app.db.create_model("existing-model", "1.0").await;
     let (addr, _handle) = test_app.start_server().await;
@@ -251,7 +264,10 @@ async fn test_sync_inference() {
     let test_app = TestApp::new().await;
     let user = test_app.db.create_user("inferuser", UserRole::User).await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "infer-key", false).await;
-    let model = test_app.db.create_model_with_storage("test-model", "1.0", test_app.storage_path.path()).await;
+    let model = test_app
+        .db
+        .create_model_with_storage("test-model", "1.0", test_app.storage_path.path())
+        .await;
     let (addr, _handle) = test_app.start_server().await;
 
     // Hanzi-tiny expects a 1x1x64x64 tensor (batch, channels, height, width)
@@ -450,16 +466,25 @@ async fn test_logout() {
 }
 
 fn hanzi_config_path() -> String {
-    common::models_dir().join("hanzi-tiny.toml").to_string_lossy().to_string()
+    common::models_dir()
+        .join("hanzi-tiny.toml")
+        .to_string_lossy()
+        .to_string()
 }
 
 // Config without map_labels for basic image inference tests
 fn hanzi_config_no_labels_path() -> String {
-    common::models_dir().join("hanzi-tiny-no-labels.toml").to_string_lossy().to_string()
+    common::models_dir()
+        .join("hanzi-tiny-no-labels.toml")
+        .to_string_lossy()
+        .to_string()
 }
 
 fn test_image_path() -> String {
-    common::models_dir().join("#U4e16.jpg").to_string_lossy().to_string()
+    common::models_dir()
+        .join("#U4e16.jpg")
+        .to_string_lossy()
+        .to_string()
 }
 
 #[tokio::test]
@@ -480,8 +505,14 @@ async fn test_model_upload_with_config() {
     let form = reqwest::multipart::Form::new()
         .text("name", "hanzi-with-config")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
-        .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"),
+        )
+        .part(
+            "config",
+            reqwest::multipart::Part::text(config_data).file_name("model.toml"),
+        );
 
     let response = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -507,7 +538,10 @@ async fn test_model_upload_with_config() {
 #[tokio::test]
 async fn test_model_upload_without_config() {
     let test_app = TestApp::new().await;
-    let user = test_app.db.create_user("uploaduser2", UserRole::Admin).await;
+    let user = test_app
+        .db
+        .create_user("uploaduser2", UserRole::Admin)
+        .await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "admin-key", true).await;
     let (addr, _handle) = test_app.start_server().await;
 
@@ -519,7 +553,10 @@ async fn test_model_upload_without_config() {
     let form = reqwest::multipart::Form::new()
         .text("name", "hanzi-no-config")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"),
+        );
 
     let response = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -535,13 +572,19 @@ async fn test_model_upload_without_config() {
     assert_eq!(body["data"]["name"], "hanzi-no-config");
     assert!(body["data"]["metadata"].is_null());
     assert!(!body["data"]["is_valid"].as_bool().unwrap());
-    assert!(body["data"]["validation_error"].as_str().unwrap().contains("config"));
+    assert!(body["data"]["validation_error"]
+        .as_str()
+        .unwrap()
+        .contains("config"));
 }
 
 #[tokio::test]
 async fn test_model_upload_invalid_config() {
     let test_app = TestApp::new().await;
-    let user = test_app.db.create_user("uploaduser3", UserRole::Admin).await;
+    let user = test_app
+        .db
+        .create_user("uploaduser3", UserRole::Admin)
+        .await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "admin-key", true).await;
     let (addr, _handle) = test_app.start_server().await;
 
@@ -553,8 +596,14 @@ async fn test_model_upload_invalid_config() {
     let form = reqwest::multipart::Form::new()
         .text("name", "hanzi-bad-config")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
-        .part("config", reqwest::multipart::Part::text("invalid toml [[[").file_name("model.toml"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"),
+        )
+        .part(
+            "config",
+            reqwest::multipart::Part::text("invalid toml [[[").file_name("model.toml"),
+        );
 
     let response = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -570,7 +619,10 @@ async fn test_model_upload_invalid_config() {
 #[tokio::test]
 async fn test_image_inference_with_config() {
     let test_app = TestApp::new().await;
-    let user = test_app.db.create_user("imginferuser", UserRole::User).await;
+    let user = test_app
+        .db
+        .create_user("imginferuser", UserRole::User)
+        .await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "infer-key", false).await;
 
     let model_path = common::hanzi_tiny_model_path();
@@ -589,8 +641,14 @@ async fn test_image_inference_with_config() {
     let form = reqwest::multipart::Form::new()
         .text("name", "hanzi-image-test")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data.clone()).file_name("hanzi_tiny.onnx"))
-        .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(model_data.clone()).file_name("hanzi_tiny.onnx"),
+        )
+        .part(
+            "config",
+            reqwest::multipart::Part::text(config_data).file_name("model.toml"),
+        );
 
     let upload_response = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -609,7 +667,10 @@ async fn test_image_inference_with_config() {
 
     let infer_form = reqwest::multipart::Form::new()
         .text("model_id", model_id.to_string())
-        .part("image", reqwest::multipart::Part::bytes(image_data).file_name("test.png"));
+        .part(
+            "image",
+            reqwest::multipart::Part::bytes(image_data).file_name("test.png"),
+        );
 
     let infer_response = client
         .post(format!("http://{}/api/v1/inference/image", addr))
@@ -622,7 +683,10 @@ async fn test_image_inference_with_config() {
     let infer_status = infer_response.status();
     let infer_body: serde_json::Value = infer_response.json().await.unwrap();
     if !infer_status.is_success() {
-        eprintln!("Image inference failed with status {}: {:?}", infer_status, infer_body);
+        eprintln!(
+            "Image inference failed with status {}: {:?}",
+            infer_status, infer_body
+        );
     }
     assert!(infer_status.is_success());
 
@@ -633,7 +697,10 @@ async fn test_image_inference_with_config() {
 #[tokio::test]
 async fn test_image_inference_by_name_version() {
     let test_app = TestApp::new().await;
-    let user = test_app.db.create_user("nameinferuser", UserRole::User).await;
+    let user = test_app
+        .db
+        .create_user("nameinferuser", UserRole::User)
+        .await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "infer-key", false).await;
 
     let model_path = common::hanzi_tiny_model_path();
@@ -652,8 +719,14 @@ async fn test_image_inference_by_name_version() {
     let form = reqwest::multipart::Form::new()
         .text("name", "hanzi-name-test")
         .text("version", "2.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"))
-        .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"),
+        )
+        .part(
+            "config",
+            reqwest::multipart::Part::text(config_data).file_name("model.toml"),
+        );
 
     let upload_response = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -671,7 +744,10 @@ async fn test_image_inference_by_name_version() {
     let infer_form = reqwest::multipart::Form::new()
         .text("name", "hanzi-name-test")
         .text("version", "2.0.0")
-        .part("image", reqwest::multipart::Part::bytes(image_data).file_name("test.png"));
+        .part(
+            "image",
+            reqwest::multipart::Part::bytes(image_data).file_name("test.png"),
+        );
 
     let infer_response = client
         .post(format!("http://{}/api/v1/inference/image", addr))
@@ -701,7 +777,10 @@ async fn test_image_inference_model_without_config() {
 
     let infer_form = reqwest::multipart::Form::new()
         .text("model_id", model.id.to_string())
-        .part("image", reqwest::multipart::Part::bytes(image_data).file_name("test.png"));
+        .part(
+            "image",
+            reqwest::multipart::Part::bytes(image_data).file_name("test.png"),
+        );
 
     let infer_response = client
         .post(format!("http://{}/api/v1/inference/image", addr))
@@ -726,8 +805,7 @@ async fn test_image_inference_no_image() {
 
     let client = reqwest::Client::new();
 
-    let infer_form = reqwest::multipart::Form::new()
-        .text("model_id", model.id.to_string());
+    let infer_form = reqwest::multipart::Form::new().text("model_id", model.id.to_string());
 
     let infer_response = client
         .post(format!("http://{}/api/v1/inference/image", addr))
@@ -743,7 +821,10 @@ async fn test_image_inference_no_image() {
 #[tokio::test]
 async fn test_image_inference_model_not_found() {
     let test_app = TestApp::new().await;
-    let user = test_app.db.create_user("notfounduser", UserRole::User).await;
+    let user = test_app
+        .db
+        .create_user("notfounduser", UserRole::User)
+        .await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "infer-key", false).await;
 
     let (addr, _handle) = test_app.start_server().await;
@@ -755,7 +836,10 @@ async fn test_image_inference_model_not_found() {
 
     let infer_form = reqwest::multipart::Form::new()
         .text("model_id", "00000000-0000-0000-0000-000000000000")
-        .part("image", reqwest::multipart::Part::bytes(image_data).file_name("test.png"));
+        .part(
+            "image",
+            reqwest::multipart::Part::bytes(image_data).file_name("test.png"),
+        );
 
     let infer_response = client
         .post(format!("http://{}/api/v1/inference/image", addr))
@@ -771,7 +855,10 @@ async fn test_image_inference_model_not_found() {
 #[tokio::test]
 async fn test_model_update_config() {
     let test_app = TestApp::new().await;
-    let user = test_app.db.create_user("updateconfiguser", UserRole::Admin).await;
+    let user = test_app
+        .db
+        .create_user("updateconfiguser", UserRole::Admin)
+        .await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "admin-key", true).await;
 
     let model_path = common::hanzi_tiny_model_path();
@@ -784,7 +871,10 @@ async fn test_model_update_config() {
     let form = reqwest::multipart::Form::new()
         .text("name", "hanzi-update-config")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"),
+        );
 
     let upload_response = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -845,7 +935,10 @@ type = "argmax"
 #[tokio::test]
 async fn test_delete_invalid_model() {
     let test_app = TestApp::new().await;
-    let user = test_app.db.create_user("deleteinvaliduser", UserRole::Admin).await;
+    let user = test_app
+        .db
+        .create_user("deleteinvaliduser", UserRole::Admin)
+        .await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "admin-key", true).await;
 
     let model_path = common::hanzi_tiny_model_path();
@@ -858,7 +951,10 @@ async fn test_delete_invalid_model() {
     let form = reqwest::multipart::Form::new()
         .text("name", "hanzi-invalid-delete")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"),
+        );
 
     let upload_response = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -895,7 +991,10 @@ async fn test_delete_invalid_model() {
 #[tokio::test]
 async fn test_list_models_filter_by_valid() {
     let test_app = TestApp::new().await;
-    let user = test_app.db.create_user("listvaliduser", UserRole::Admin).await;
+    let user = test_app
+        .db
+        .create_user("listvaliduser", UserRole::Admin)
+        .await;
     let (_, raw_key) = test_app.db.create_api_key(&user, "admin-key", true).await;
 
     let model_path = common::hanzi_tiny_model_path();
@@ -910,8 +1009,14 @@ async fn test_list_models_filter_by_valid() {
     let form_valid = reqwest::multipart::Form::new()
         .text("name", "valid-model")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data.clone()).file_name("hanzi_tiny.onnx"))
-        .part("config", reqwest::multipart::Part::text(config_data).file_name("model.toml"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(model_data.clone()).file_name("hanzi_tiny.onnx"),
+        )
+        .part(
+            "config",
+            reqwest::multipart::Part::text(config_data).file_name("model.toml"),
+        );
 
     let upload_valid = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -925,7 +1030,10 @@ async fn test_list_models_filter_by_valid() {
     let form_invalid = reqwest::multipart::Form::new()
         .text("name", "invalid-model")
         .text("version", "1.0.0")
-        .part("file", reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"));
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(model_data).file_name("hanzi_tiny.onnx"),
+        );
 
     let upload_invalid = client
         .post(format!("http://{}/api/v1/models/upload", addr))
@@ -945,7 +1053,9 @@ async fn test_list_models_filter_by_valid() {
 
     let valid_body: serde_json::Value = list_valid.json().await.unwrap();
     let valid_models = valid_body["data"].as_array().unwrap();
-    assert!(valid_models.iter().all(|m| m["is_valid"].as_bool().unwrap()));
+    assert!(valid_models
+        .iter()
+        .all(|m| m["is_valid"].as_bool().unwrap()));
 
     let list_invalid = client
         .get(format!("http://{}/api/v1/models?is_valid=false", addr))
@@ -956,5 +1066,7 @@ async fn test_list_models_filter_by_valid() {
 
     let invalid_body: serde_json::Value = list_invalid.json().await.unwrap();
     let invalid_models = invalid_body["data"].as_array().unwrap();
-    assert!(invalid_models.iter().all(|m| !m["is_valid"].as_bool().unwrap()));
+    assert!(invalid_models
+        .iter()
+        .all(|m| !m["is_valid"].as_bool().unwrap()));
 }

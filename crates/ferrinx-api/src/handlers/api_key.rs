@@ -7,7 +7,9 @@ use rand::RngExt;
 use uuid::Uuid;
 
 use crate::{
-    dto::{ApiResponse, ApiKeyDetail, CreateApiKeyRequest, CreateApiKeyResponse, UpdateApiKeyRequest},
+    dto::{
+        ApiKeyDetail, ApiResponse, CreateApiKeyRequest, CreateApiKeyResponse, UpdateApiKeyRequest,
+    },
     error::{ApiError, Result},
     routes::AppState,
 };
@@ -33,11 +35,13 @@ pub async fn create(
     let raw_key = generate_api_key();
     let key_hash = ferrinx_common::hash_key(&raw_key);
 
-    let expires_at = req.expires_in_days.map(|days| {
-        Utc::now() + Duration::days(days as i64)
-    });
+    let expires_at = req
+        .expires_in_days
+        .map(|days| Utc::now() + Duration::days(days as i64));
 
-    let permissions = req.permissions.unwrap_or_else(ferrinx_common::Permissions::user_default);
+    let permissions = req
+        .permissions
+        .unwrap_or_else(ferrinx_common::Permissions::user_default);
 
     let api_key_record = ferrinx_common::ApiKeyRecord {
         id: key_id,

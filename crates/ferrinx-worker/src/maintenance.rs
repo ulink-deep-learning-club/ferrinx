@@ -35,9 +35,18 @@ impl MaintenanceRunner {
         let mut total_deleted = 0u64;
 
         for (status, days) in [
-            (ferrinx_common::TaskStatus::Completed, self.completed_retention_days),
-            (ferrinx_common::TaskStatus::Failed, self.failed_retention_days),
-            (ferrinx_common::TaskStatus::Cancelled, self.cancelled_retention_days),
+            (
+                ferrinx_common::TaskStatus::Completed,
+                self.completed_retention_days,
+            ),
+            (
+                ferrinx_common::TaskStatus::Failed,
+                self.failed_retention_days,
+            ),
+            (
+                ferrinx_common::TaskStatus::Cancelled,
+                self.cancelled_retention_days,
+            ),
         ] {
             let deleted = self.db.tasks.cleanup_expired(days, self.batch_size).await?;
             if deleted > 0 {

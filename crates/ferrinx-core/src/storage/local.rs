@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 
-use crate::error::StorageError;
 use super::ModelStorage;
+use crate::error::StorageError;
 
 pub struct LocalStorage {
     base_path: PathBuf,
@@ -31,7 +31,9 @@ impl ModelStorage for LocalStorage {
     }
 
     async fn delete(&self, path: &str) -> Result<(), StorageError> {
-        tokio::fs::remove_file(path).await.map_err(StorageError::from)
+        tokio::fs::remove_file(path)
+            .await
+            .map_err(StorageError::from)
     }
 
     async fn exists(&self, path: &str) -> Result<bool, StorageError> {
@@ -58,12 +60,12 @@ mod tests {
     #[tokio::test]
     async fn test_local_storage_save_load() {
         let (_temp_dir, storage) = setup_test_storage();
-        
+
         let data = vec![1, 2, 3, 4, 5];
         let path = storage.save("test-model", &data).await.unwrap();
-        
+
         assert!(storage.exists(&path).await.unwrap());
-        
+
         let loaded = storage.load(&path).await.unwrap();
         assert_eq!(loaded, data);
     }
@@ -71,24 +73,24 @@ mod tests {
     #[tokio::test]
     async fn test_local_storage_delete() {
         let (_temp_dir, storage) = setup_test_storage();
-        
+
         let data = vec![1, 2, 3, 4, 5];
         let path = storage.save("test-model", &data).await.unwrap();
-        
+
         assert!(storage.exists(&path).await.unwrap());
-        
+
         storage.delete(&path).await.unwrap();
-        
+
         assert!(!storage.exists(&path).await.unwrap());
     }
 
     #[tokio::test]
     async fn test_local_storage_size() {
         let (_temp_dir, storage) = setup_test_storage();
-        
+
         let data = vec![1, 2, 3, 4, 5];
         let path = storage.save("test-model", &data).await.unwrap();
-        
+
         let size = storage.size(&path).await.unwrap();
         assert_eq!(size, 5);
     }

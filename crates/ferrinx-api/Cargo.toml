@@ -5,6 +5,14 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = []
+cuda = ["ferrinx-core/cuda"]
+rocm = ["ferrinx-core/rocm"]
+coreml = ["ferrinx-core/coreml"]
+webgpu = ["ferrinx-core/webgpu"]
+load-dynamic = ["ferrinx-core/load-dynamic"]
+
 [dependencies]
 ferrinx-common = { path = "../ferrinx-common" }
 ferrinx-db = { path = "../ferrinx-db" }

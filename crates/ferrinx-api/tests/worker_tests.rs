@@ -1,5 +1,6 @@
 //
-#[path = "common/mod.rs"] mod common;
+#[path = "common/mod.rs"]
+mod common;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -8,8 +9,8 @@ use ferrinx_common::{TaskStatus, UserRole};
 use futures::future::join_all;
 use uuid::Uuid;
 
-use common::{MockInferenceEngine, MockRedis, TestDb};
 use common::mock_redis::RedisClient;
+use common::{MockInferenceEngine, MockRedis, TestDb};
 
 #[tokio::test]
 async fn test_task_message_extraction() {
@@ -120,7 +121,9 @@ async fn test_engine_successful_inference() {
         inputs: HashMap::from([("input".to_string(), serde_json::json!([1.0, 2.0, 3.0]))]),
     };
 
-    let output = engine.infer("test-model", "/path/to/model.onnx", input).await;
+    let output = engine
+        .infer("test-model", "/path/to/model.onnx", input)
+        .await;
 
     assert!(output.is_ok());
     let output = output.unwrap();
@@ -137,7 +140,9 @@ async fn test_engine_failed_inference() {
         inputs: HashMap::from([("input".to_string(), serde_json::json!([1.0, 2.0, 3.0]))]),
     };
 
-    let output = engine.infer("test-model", "/path/to/model.onnx", input).await;
+    let output = engine
+        .infer("test-model", "/path/to/model.onnx", input)
+        .await;
 
     assert!(output.is_err());
 }
@@ -147,13 +152,12 @@ async fn test_engine_custom_response() {
     let engine = MockInferenceEngine::new(5);
 
     let custom_output = ferrinx_common::InferenceOutput {
-        outputs: HashMap::from([(
-            "custom_output".to_string(),
-            serde_json::json!([42.0, 43.0]),
-        )]),
+        outputs: HashMap::from([("custom_output".to_string(), serde_json::json!([42.0, 43.0]))]),
         latency_ms: 100,
     };
-    engine.set_response("custom-model", custom_output.clone()).await;
+    engine
+        .set_response("custom-model", custom_output.clone())
+        .await;
 
     let input = ferrinx_common::InferenceInput {
         inputs: HashMap::from([("input".to_string(), serde_json::json!([1.0]))]),
@@ -181,7 +185,9 @@ async fn test_engine_concurrency() {
             let input = ferrinx_common::InferenceInput {
                 inputs: HashMap::from([("input".to_string(), serde_json::json!([i as f64]))]),
             };
-            engine.infer(&format!("model-{}", i), "/path/to/model.onnx", input).await
+            engine
+                .infer(&format!("model-{}", i), "/path/to/model.onnx", input)
+                .await
         });
         handles.push(handle);
     }
@@ -210,7 +216,13 @@ async fn test_task_status_transitions() {
         .await
         .unwrap();
 
-    let updated = test_db.db.tasks.find_by_id(&task.id).await.unwrap().unwrap();
+    let updated = test_db
+        .db
+        .tasks
+        .find_by_id(&task.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(updated.status, TaskStatus::Running);
 
     let outputs = serde_json::json!({"output": [1.0]});
@@ -221,7 +233,13 @@ async fn test_task_status_transitions() {
         .await
         .unwrap();
 
-    let completed = test_db.db.tasks.find_by_id(&task.id).await.unwrap().unwrap();
+    let completed = test_db
+        .db
+        .tasks
+        .find_by_id(&task.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(completed.status, TaskStatus::Completed);
     assert!(completed.outputs.is_some());
     assert!(completed.completed_at.is_some());
@@ -242,7 +260,13 @@ async fn test_task_failure_recording() {
         .await
         .unwrap();
 
-    let failed = test_db.db.tasks.find_by_id(&task.id).await.unwrap().unwrap();
+    let failed = test_db
+        .db
+        .tasks
+        .find_by_id(&task.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(failed.status, TaskStatus::Failed);
     assert_eq!(failed.error_message, Some("Test error".to_string()));
 }
@@ -344,8 +368,12 @@ async fn test_multiple_priority_streams() {
 async fn test_redis_clear() {
     let redis = MockRedis::new();
 
-    redis.add_task("ferrinx:tasks:normal", &Uuid::new_v4().to_string()).await;
-    redis.set_result(&Uuid::new_v4().to_string(), serde_json::json!({})).await;
+    redis
+        .add_task("ferrinx:tasks:normal", &Uuid::new_v4().to_string())
+        .await;
+    redis
+        .set_result(&Uuid::new_v4().to_string(), serde_json::json!({}))
+        .await;
 
     redis.clear().await;
 

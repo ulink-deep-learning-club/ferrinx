@@ -180,7 +180,9 @@ mod tests {
     async fn test_validate_executable_timeout() {
         let loader = ModelLoader::new(create_test_storage());
         let data = vec![0x08, 0x00, 0x00, 0x00, 0x00];
-        let result = loader.validate_executable(&data, Duration::from_millis(1)).await;
+        let result = loader
+            .validate_executable(&data, Duration::from_millis(1))
+            .await;
         assert!(result.is_err());
     }
 }

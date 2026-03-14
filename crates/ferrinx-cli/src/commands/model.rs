@@ -19,7 +19,10 @@ pub fn embed_labels_in_config(config_content: &str, config_path: &str) -> Result
 }
 
 /// Extract model file path from config if present, resolving relative to config directory
-pub fn get_model_file_from_config(config_content: &str, config_path: &str) -> Result<Option<String>> {
+pub fn get_model_file_from_config(
+    config_content: &str,
+    config_path: &str,
+) -> Result<Option<String>> {
     let config: ferrinx_core::model::config::ModelConfig = toml::from_str(config_content)
         .map_err(|e| CliError::Config(format!("Invalid config TOML: {}", e)))?;
 
@@ -162,30 +165,39 @@ pub async fn handle_model(
             let resolved_model_path = if let Some(path) = model_path {
                 path
             } else if let Some(ref content) = config_content {
-                resolve_model_file_path(content, config_path.as_ref().unwrap())?
-                    .ok_or_else(|| CliError::Config("model.file not specified in config".to_string()))?
+                resolve_model_file_path(content, config_path.as_ref().unwrap())?.ok_or_else(
+                    || CliError::Config("model.file not specified in config".to_string()),
+                )?
             } else {
-                return Err(CliError::Config("Either model_path or --model-config must be provided".to_string()));
+                return Err(CliError::Config(
+                    "Either model_path or --model-config must be provided".to_string(),
+                ));
             };
 
             // Resolve name: use provided name or get from config
             let resolved_name = if let Some(n) = name {
                 n
             } else if let Some(ref content) = config_content {
-                get_model_name_from_config(content)?
-                    .ok_or_else(|| CliError::Config("meta.name not specified in config".to_string()))?
+                get_model_name_from_config(content)?.ok_or_else(|| {
+                    CliError::Config("meta.name not specified in config".to_string())
+                })?
             } else {
-                return Err(CliError::Config("Either --name or --model-config must be provided".to_string()));
+                return Err(CliError::Config(
+                    "Either --name or --model-config must be provided".to_string(),
+                ));
             };
 
             // Resolve version: use provided version or get from config
             let resolved_version = if let Some(v) = version {
                 v
             } else if let Some(ref content) = config_content {
-                get_model_version_from_config(content)?
-                    .ok_or_else(|| CliError::Config("meta.version not specified in config".to_string()))?
+                get_model_version_from_config(content)?.ok_or_else(|| {
+                    CliError::Config("meta.version not specified in config".to_string())
+                })?
             } else {
-                return Err(CliError::Config("Either --version or --model-config must be provided".to_string()));
+                return Err(CliError::Config(
+                    "Either --version or --model-config must be provided".to_string(),
+                ));
             };
 
             let mut form_data = HashMap::new();
@@ -193,7 +205,12 @@ pub async fn handle_model(
             form_data.insert("version".to_string(), resolved_version.clone());
 
             let response: ModelResponse = client
-                .upload_with_config("/models/upload", &resolved_model_path, form_data, config_path.as_deref())
+                .upload_with_config(
+                    "/models/upload",
+                    &resolved_model_path,
+                    form_data,
+                    config_path.as_deref(),
+                )
                 .await?;
 
             output::print_success("Model uploaded");
@@ -221,35 +238,47 @@ pub async fn handle_model(
             let resolved_server_path = if let Some(path) = server_path {
                 path
             } else if let Some(ref content) = config_content {
-                get_model_file_from_config(content, config_path.as_ref().unwrap())?
-                    .ok_or_else(|| CliError::Config("model.file not specified in config".to_string()))?
+                get_model_file_from_config(content, config_path.as_ref().unwrap())?.ok_or_else(
+                    || CliError::Config("model.file not specified in config".to_string()),
+                )?
             } else {
-                return Err(CliError::Config("Either server_path or --model-config must be provided".to_string()));
+                return Err(CliError::Config(
+                    "Either server_path or --model-config must be provided".to_string(),
+                ));
             };
 
             // Resolve name: use provided name or get from config
             let resolved_name = if let Some(n) = name {
                 n
             } else if let Some(ref content) = config_content {
-                get_model_name_from_config(content)?
-                    .ok_or_else(|| CliError::Config("meta.name not specified in config".to_string()))?
+                get_model_name_from_config(content)?.ok_or_else(|| {
+                    CliError::Config("meta.name not specified in config".to_string())
+                })?
             } else {
-                return Err(CliError::Config("Either --name or --model-config must be provided".to_string()));
+                return Err(CliError::Config(
+                    "Either --name or --model-config must be provided".to_string(),
+                ));
             };
 
             // Resolve version: use provided version or get from config
             let resolved_version = if let Some(v) = version {
                 v
             } else if let Some(ref content) = config_content {
-                get_model_version_from_config(content)?
-                    .ok_or_else(|| CliError::Config("meta.version not specified in config".to_string()))?
+                get_model_version_from_config(content)?.ok_or_else(|| {
+                    CliError::Config("meta.version not specified in config".to_string())
+                })?
             } else {
-                return Err(CliError::Config("Either --version or --model-config must be provided".to_string()));
+                return Err(CliError::Config(
+                    "Either --version or --model-config must be provided".to_string(),
+                ));
             };
 
             // Process config content with embedded labels if provided
             let processed_config = if let Some(ref content) = config_content {
-                Some(embed_labels_in_config(content, config_path.as_ref().unwrap())?)
+                Some(embed_labels_in_config(
+                    content,
+                    config_path.as_ref().unwrap(),
+                )?)
             } else {
                 None
             };
@@ -260,7 +289,7 @@ pub async fn handle_model(
                 version: resolved_version,
                 config: processed_config,
             };
-            
+
             let response: ModelResponse = client.post("/models/register", &request).await?;
 
             output::print_success("Model registered");
@@ -299,23 +328,27 @@ pub async fn handle_model(
                 #[serde(skip_serializing_if = "Option::is_none")]
                 config: Option<String>,
             }
-            
+
             let config_content = if let Some(path) = config_path {
                 Some(std::fs::read_to_string(&path)?)
             } else {
                 None
             };
 
-            let request = UpdateModelRequest { 
-                name, 
+            let request = UpdateModelRequest {
+                name,
                 version,
                 config: config_content,
             };
-            let model: ModelDetail = client.put(&format!("/models/{}", model_id), &request).await?;
+            let model: ModelDetail = client
+                .put(&format!("/models/{}", model_id), &request)
+                .await?;
             output::print_success(&format!("Model updated: {}", model.name));
         }
         ModelCommands::Delete { name, version } => {
-            client.delete_void(&format!("/models/{}/{}", name, version)).await?;
+            client
+                .delete_void(&format!("/models/{}/{}", name, version))
+                .await?;
             output::print_success(&format!("Model deleted: {}:{}", name, version));
         }
     }

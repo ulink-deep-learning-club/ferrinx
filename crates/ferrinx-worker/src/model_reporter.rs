@@ -48,15 +48,15 @@ impl ModelReporter {
             ..Default::default()
         };
         let models = self.db.models.list(&filter).await?;
-        
+
         let mut available = HashSet::new();
-        
+
         for model in models {
             if self.storage.exists(&model.file_path).await? {
                 available.insert(model.id);
             }
         }
-        
+
         debug!("Scanned {} available models", available.len());
         Ok(available)
     }
@@ -64,7 +64,7 @@ impl ModelReporter {
     pub async fn report_status(&self) -> Result<()> {
         let available_models = self.scan_available_models().await?;
         let cached_models = self.cached_models.read().unwrap().clone();
-        
+
         let mut status = std::collections::HashMap::new();
         for model_id in &available_models {
             if cached_models.contains(model_id) {
@@ -73,41 +73,43 @@ impl ModelReporter {
                 status.insert(model_id.to_string(), "available".to_string());
             }
         }
-        
+
         self.redis.set_worker_heartbeat(&self.worker_id).await?;
-        self.redis.set_worker_models(&self.worker_id, &status).await?;
-        
+        self.redis
+            .set_worker_models(&self.worker_id, &status)
+            .await?;
+
         debug!(
             "Reported model status: {} total, {} cached, {} available",
             status.len(),
             cached_models.len(),
             status.len() - cached_models.len()
         );
-        
+
         Ok(())
     }
 
     pub async fn run(self: Arc<Self>, shutdown: tokio_util::sync::CancellationToken) {
         info!("Model reporter started for worker {}", self.worker_id);
-        
+
         if let Err(e) = self.report_status().await {
             error!("Initial model status report failed: {}", e);
         }
-        
+
         let mut interval = tokio::time::interval(self.report_interval);
-        
+
         loop {
             tokio::select! {
                 _ = shutdown.cancelled() => {
                     info!("Model reporter shutting down");
-                    
+
                     if let Err(e) = self.redis.remove_worker_models(&self.worker_id).await {
                         warn!("Failed to remove worker models on shutdown: {}", e);
                     }
-                    
+
                     break;
                 }
-                
+
                 _ = interval.tick() => {
                     if let Err(e) = self.report_status().await {
                         error!("Model status report failed: {}", e);
@@ -115,7 +117,7 @@ impl ModelReporter {
                 }
             }
         }
-        
+
         info!("Model reporter stopped");
     }
 }

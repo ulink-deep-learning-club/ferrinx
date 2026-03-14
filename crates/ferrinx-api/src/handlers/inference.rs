@@ -99,7 +99,10 @@ pub async fn sync_infer(
     }
 
     let input = ferrinx_common::InferenceInput { inputs: req.inputs };
-    let output = state.engine.infer(&model_id, &model.file_path, input).await?;
+    let output = state
+        .engine
+        .infer(&model_id, &model.file_path, input)
+        .await?;
 
     let api_key_id = api_key.id;
     let db = state.db.clone();
@@ -127,9 +130,11 @@ pub async fn image_infer(
     let mut model_version: Option<String> = None;
     let mut image_data: Option<Vec<u8>> = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
-        ApiError::BadRequest(format!("Multipart error: {}", e))
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Multipart error: {}", e)))?
+    {
         let name = field.name().unwrap_or("").to_string();
 
         match name.as_str() {
@@ -139,14 +144,16 @@ pub async fn image_infer(
                 })?);
             }
             "name" => {
-                model_name = Some(field.text().await.map_err(|e| {
-                    ApiError::BadRequest(format!("Failed to read name: {}", e))
-                })?);
+                model_name =
+                    Some(field.text().await.map_err(|e| {
+                        ApiError::BadRequest(format!("Failed to read name: {}", e))
+                    })?);
             }
             "version" => {
-                model_version = Some(field.text().await.map_err(|e| {
-                    ApiError::BadRequest(format!("Failed to read version: {}", e))
-                })?);
+                model_version =
+                    Some(field.text().await.map_err(|e| {
+                        ApiError::BadRequest(format!("Failed to read version: {}", e))
+                    })?);
             }
             "image" => {
                 image_data = Some(
@@ -161,7 +168,8 @@ pub async fn image_infer(
         }
     }
 
-    let image_data = image_data.ok_or_else(|| ApiError::BadRequest("No image uploaded".to_string()))?;
+    let image_data =
+        image_data.ok_or_else(|| ApiError::BadRequest("No image uploaded".to_string()))?;
 
     let model = if let Some(id) = model_id {
         let model_id = Uuid::parse_str(&id)?;
@@ -179,19 +187,24 @@ pub async fn image_infer(
             .await?
             .ok_or(ApiError::ModelNotFound)?
     } else {
-        return Err(ApiError::BadRequest("Either model_id or name+version is required".to_string()));
+        return Err(ApiError::BadRequest(
+            "Either model_id or name+version is required".to_string(),
+        ));
     };
 
     if !model.is_valid() {
         return Err(ApiError::ModelNotValid);
     }
 
-    let model_config: ferrinx_core::model::config::ModelConfig = model.metadata
+    let model_config: ferrinx_core::model::config::ModelConfig = model
+        .metadata
         .as_ref()
         .and_then(|m| serde_json::from_value(m.clone()).ok())
         .ok_or_else(|| ApiError::BadRequest("Model has no preprocessing config".to_string()))?;
 
-    let input_config = model_config.inputs.first()
+    let input_config = model_config
+        .inputs
+        .first()
         .ok_or_else(|| ApiError::BadRequest("Model has no input config".to_string()))?;
 
     let img = image::load_from_memory(&image_data)
@@ -202,7 +215,8 @@ pub async fn image_infer(
         .run(ferrinx_core::TransformData::Image(img))
         .map_err(|e| ApiError::BadRequest(format!("Preprocessing failed: {}", e)))?;
 
-    let tensor = preprocessed.into_tensor_f32()
+    let tensor = preprocessed
+        .into_tensor_f32()
         .map_err(|e| ApiError::BadRequest(format!("Expected tensor after preprocessing: {}", e)))?;
 
     let input_name = input_config.name.clone();
@@ -210,49 +224,53 @@ pub async fn image_infer(
     let flat_data: Vec<f32> = tensor.iter().cloned().collect();
     let tensor_obj = FerrinxTensor::new_f32(shape, &flat_data);
 
-    let inputs = HashMap::from([(
-        input_name,
-        serde_json::to_value(&tensor_obj)?,
-    )]);
+    let inputs = HashMap::from([(input_name, serde_json::to_value(&tensor_obj)?)]);
 
     let input = ferrinx_common::InferenceInput { inputs };
-    let output = state.engine.infer(&model.id, &model.file_path, input).await?;
+    let output = state
+        .engine
+        .infer(&model.id, &model.file_path, input)
+        .await?;
 
     let output_config = model_config.outputs.first();
     let result = if let Some(out_cfg) = output_config {
         if !out_cfg.postprocess.is_empty() {
             let output_name = out_cfg.name.clone();
-            let output_data = output.outputs.get(&output_name)
+            let output_data = output
+                .outputs
+                .get(&output_name)
                 .ok_or_else(|| ApiError::BadRequest(format!("Output {} not found", output_name)))?;
 
-            let tensor_data = if let Ok(tensor) = serde_json::from_value::<FerrinxTensor>(output_data.clone()) {
-                tensor.decode_f32()
+            let tensor_data = if let Ok(tensor) =
+                serde_json::from_value::<FerrinxTensor>(output_data.clone())
+            {
+                tensor
+                    .decode_f32()
                     .map_err(|e| ApiError::BadRequest(format!("Failed to decode tensor: {}", e)))?
             } else {
                 serde_json::from_value(output_data.clone())
                     .map_err(|e| ApiError::BadRequest(format!("Invalid output format: {}", e)))?
             };
 
-            let tensor = ndarray::ArrayD::from_shape_vec(
-                ndarray::IxDyn(&[tensor_data.len()]),
-                tensor_data
-            ).map_err(|e| ApiError::BadRequest(format!("Tensor creation failed: {}", e)))?;
+            let tensor =
+                ndarray::ArrayD::from_shape_vec(ndarray::IxDyn(&[tensor_data.len()]), tensor_data)
+                    .map_err(|e| ApiError::BadRequest(format!("Tensor creation failed: {}", e)))?;
 
             let labels = model_config.get_labels().cloned();
 
-            let post_pipeline = ferrinx_core::PostprocessPipeline::new(
-                out_cfg.postprocess.clone(),
-                labels,
-            );
+            let post_pipeline =
+                ferrinx_core::PostprocessPipeline::new(out_cfg.postprocess.clone(), labels);
 
             post_pipeline
                 .run(ferrinx_core::TransformData::TensorF32(tensor))
                 .map_err(|e| ApiError::BadRequest(format!("Postprocessing failed: {}", e)))?
         } else {
-            serde_json::to_value(&output.outputs).map_err(|e| ApiError::BadRequest(format!("JSON error: {}", e)))?
+            serde_json::to_value(&output.outputs)
+                .map_err(|e| ApiError::BadRequest(format!("JSON error: {}", e)))?
         }
     } else {
-        serde_json::to_value(&output.outputs).map_err(|e| ApiError::BadRequest(format!("JSON error: {}", e)))?
+        serde_json::to_value(&output.outputs)
+            .map_err(|e| ApiError::BadRequest(format!("JSON error: {}", e)))?
     };
 
     let api_key_id = api_key.id;
@@ -290,7 +308,9 @@ pub async fn async_infer(
         return Err(ApiError::ModelNotValid);
     }
 
-    let best_worker = redis.get_best_worker_for_model(&model.id).await
+    let best_worker = redis
+        .get_best_worker_for_model(&model.id)
+        .await
         .map_err(|e| ApiError::RedisError(e.to_string()))?;
 
     let task_id = Uuid::new_v4();
@@ -317,7 +337,9 @@ pub async fn async_infer(
     state.db.tasks.save(&task).await?;
 
     let worker_id = best_worker.ok_or(ApiError::NoWorkerAvailable)?;
-    redis.push_task_to_worker(&worker_id, &task).await
+    redis
+        .push_task_to_worker(&worker_id, &task)
+        .await
         .map_err(|e| ApiError::RedisError(e.to_string()))?;
 
     Ok(Json(ApiResponse::success(AsyncInferResponse {
@@ -385,9 +407,7 @@ pub async fn list_tasks(
 ) -> Result<Json<ApiResponse<Vec<TaskDetail>>>> {
     let filter = ferrinx_common::TaskFilter {
         user_id: Some(api_key.user_id),
-        model_id: filter
-            .model_id
-            .and_then(|s| Uuid::parse_str(&s).ok()),
+        model_id: filter.model_id.and_then(|s| Uuid::parse_str(&s).ok()),
         status: filter
             .status
             .and_then(|s| ferrinx_common::TaskStatus::from_str(&s)),

@@ -26,8 +26,11 @@ impl DbContext {
             ));
         }
 
-        let db_path = config.url.trim_start_matches("sqlite://").trim_start_matches("sqlite:");
-        
+        let db_path = config
+            .url
+            .trim_start_matches("sqlite://")
+            .trim_start_matches("sqlite:");
+
         if let Some(parent) = Path::new(db_path).parent() {
             if !parent.exists() {
                 std::fs::create_dir_all(parent).map_err(|e| {
@@ -180,9 +183,7 @@ impl DbContext {
     }
 
     pub async fn health_check(&self) -> Result<()> {
-        sqlx::query("SELECT 1")
-            .fetch_one(&self.pool)
-            .await?;
+        sqlx::query("SELECT 1").fetch_one(&self.pool).await?;
         Ok(())
     }
 }

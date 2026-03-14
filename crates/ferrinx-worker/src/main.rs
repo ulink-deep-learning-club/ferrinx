@@ -35,7 +35,7 @@ impl WorkerContext {
 
         let redis = redis::create_redis_client(&config.redis.url)?;
 
-        let cached_models: model_reporter::CachedModelsRef = 
+        let cached_models: model_reporter::CachedModelsRef =
             Arc::new(std::sync::RwLock::new(std::collections::HashSet::new()));
 
         let cached_models_clone = cached_models.clone();
@@ -53,12 +53,12 @@ impl WorkerContext {
         }) as ferrinx_core::CacheEvictCallback);
 
         let engine = Arc::new(
-            ferrinx_core::InferenceEngine::new(&config.onnx)?
-                .with_callbacks(on_evict, on_load)
+            ferrinx_core::InferenceEngine::new(&config.onnx)?.with_callbacks(on_evict, on_load),
         );
 
         let path = config.storage.path.as_deref().unwrap_or("./models");
-        let storage: Arc<dyn ferrinx_core::ModelStorage> = Arc::new(ferrinx_core::LocalStorage::new(path)?);
+        let storage: Arc<dyn ferrinx_core::ModelStorage> =
+            Arc::new(ferrinx_core::LocalStorage::new(path)?);
 
         Ok(Self {
             config,
@@ -117,12 +117,15 @@ async fn run_worker(
         ferrinx_common::constants::REDIS_STREAM_KEY_LOW.to_string(),
     ];
 
-    let consumer = Arc::new(TaskConsumer::new(
-        ctx.redis.clone(),
-        consumer_name.clone(),
-        ctx.config.redis.consumer_group.clone(),
-        streams,
-    ).with_claim_idle_ms(ctx.config.worker.claim_idle_ms));
+    let consumer = Arc::new(
+        TaskConsumer::new(
+            ctx.redis.clone(),
+            consumer_name.clone(),
+            ctx.config.redis.consumer_group.clone(),
+            streams,
+        )
+        .with_claim_idle_ms(ctx.config.worker.claim_idle_ms),
+    );
 
     let processor = Arc::new(TaskProcessor::new(
         ctx.db.clone(),
@@ -140,7 +143,7 @@ async fn run_worker(
             ctx.db.clone(),
             ferrinx_common::constants::WORKER_STATUS_REPORT_INTERVAL_SECS,
         )
-        .with_cached_models(ctx.cached_models.clone())
+        .with_cached_models(ctx.cached_models.clone()),
     );
 
     let reporter_token = shutdown.child_token();
@@ -159,14 +162,17 @@ async fn run_worker(
         ctx.config.cleanup.cleanup_batch_size,
     ));
 
-    let mut maintenance_interval =
-        tokio::time::interval(Duration::from_secs(ctx.config.cleanup.cleanup_interval_hours * 3600));
+    let mut maintenance_interval = tokio::time::interval(Duration::from_secs(
+        ctx.config.cleanup.cleanup_interval_hours * 3600,
+    ));
 
-    let mut task_recovery_interval =
-        tokio::time::interval(Duration::from_secs(ctx.config.worker.task_recovery_interval_secs));
+    let mut task_recovery_interval = tokio::time::interval(Duration::from_secs(
+        ctx.config.worker.task_recovery_interval_secs,
+    ));
 
-    let mut health_check_interval =
-        tokio::time::interval(Duration::from_secs(ctx.config.worker.health_check_interval_secs));
+    let mut health_check_interval = tokio::time::interval(Duration::from_secs(
+        ctx.config.worker.health_check_interval_secs,
+    ));
 
     let mut consecutive_health_failures = 0u32;
     const MAX_HEALTH_FAILURES: u32 = 3;
@@ -298,7 +304,10 @@ async fn run_worker(
         }
     }
 
-    info!("Waiting for {} active tasks to complete...", current_tasks.load(Ordering::Relaxed));
+    info!(
+        "Waiting for {} active tasks to complete...",
+        current_tasks.load(Ordering::Relaxed)
+    );
 
     let shutdown_timeout = Duration::from_secs(ctx.config.server.graceful_shutdown_timeout);
     let start = Instant::now();
@@ -359,6 +368,15 @@ async fn main() -> anyhow::Result<()> {
             error!("Configuration error: {}", error);
         }
         std::process::exit(1);
+    }
+
+    if let Some(ref lib_path) = config.onnx.dynamic_lib_path {
+        #[cfg(not(feature = "load-dynamic"))]
+        warn!("dynamic_lib_path is set but 'load-dynamic' feature is not enabled. Using static linking instead.");
+
+        ferrinx_core::init_onnxruntime(lib_path)?;
+        #[cfg(feature = "load-dynamic")]
+        info!("Initialized ONNX Runtime from: {}", lib_path);
     }
 
     init_logging(&config.logging)?;

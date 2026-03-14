@@ -48,8 +48,9 @@ pub async fn handle_admin(
                 Some(p) => p,
                 None => {
                     if atty::is(atty::Stream::Stdin) {
-                        rpassword::prompt_password("Password: ")
-                            .map_err(|_| CliError::InvalidInput("Failed to read password".to_string()))?
+                        rpassword::prompt_password("Password: ").map_err(|_| {
+                            CliError::InvalidInput("Failed to read password".to_string())
+                        })?
                     } else {
                         let mut input = String::new();
                         std::io::stdin().read_line(&mut input)?;
@@ -97,11 +98,15 @@ pub async fn handle_admin(
                 role,
                 is_active: active,
             };
-            let user: UserResponse = client.put(&format!("/admin/users/{}", user_id), &request).await?;
+            let user: UserResponse = client
+                .put(&format!("/admin/users/{}", user_id), &request)
+                .await?;
             output::print_success(&format!("User updated: {}", user.username));
         }
         AdminCommands::DeleteUser { user_id } => {
-            client.delete_void(&format!("/admin/users/{}", user_id)).await?;
+            client
+                .delete_void(&format!("/admin/users/{}", user_id))
+                .await?;
             output::print_success(&format!("User deleted: {}", user_id));
         }
     }

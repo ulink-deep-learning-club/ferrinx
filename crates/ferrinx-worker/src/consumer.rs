@@ -123,14 +123,16 @@ impl TaskConsumer {
         let entry_ids: Vec<&str> = stale.iter().map(|p| p.id.as_str()).collect();
         let claimed = self
             .redis
-            .xclaim(stream, &self.group_name, &self.consumer_name, self.claim_idle_ms, &entry_ids)
+            .xclaim(
+                stream,
+                &self.group_name,
+                &self.consumer_name,
+                self.claim_idle_ms,
+                &entry_ids,
+            )
             .await?;
 
-        warn!(
-            "Claimed {} stale tasks from {}",
-            claimed.len(),
-            stream
-        );
+        warn!("Claimed {} stale tasks from {}", claimed.len(), stream);
 
         Ok(claimed
             .into_iter()

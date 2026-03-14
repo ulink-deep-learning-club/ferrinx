@@ -50,21 +50,25 @@ pub async fn upload(
     let mut model_data: Option<Vec<u8>> = None;
     let mut config_data: Option<String> = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| {
-        ApiError::BadRequest(format!("Multipart error: {}", e))
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ApiError::BadRequest(format!("Multipart error: {}", e)))?
+    {
         let name = field.name().unwrap_or("").to_string();
 
         match name.as_str() {
             "name" => {
-                model_name = field.text().await.map_err(|e| {
-                    ApiError::BadRequest(format!("Failed to read name: {}", e))
-                })?;
+                model_name = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError::BadRequest(format!("Failed to read name: {}", e)))?;
             }
             "version" => {
-                model_version = field.text().await.map_err(|e| {
-                    ApiError::BadRequest(format!("Failed to read version: {}", e))
-                })?;
+                model_version = field
+                    .text()
+                    .await
+                    .map_err(|e| ApiError::BadRequest(format!("Failed to read version: {}", e)))?;
             }
             "file" => {
                 model_data = Some(
@@ -76,11 +80,10 @@ pub async fn upload(
                 );
             }
             "config" => {
-                config_data = Some(
-                    field.text().await.map_err(|e| {
+                config_data =
+                    Some(field.text().await.map_err(|e| {
                         ApiError::BadRequest(format!("Failed to read config: {}", e))
-                    })?,
-                );
+                    })?);
             }
             _ => {}
         }
@@ -90,14 +93,10 @@ pub async fn upload(
         return Err(ApiError::BadRequest("Missing name or version".to_string()));
     }
 
-    let model_data = model_data.ok_or_else(|| ApiError::BadRequest("No file uploaded".to_string()))?;
+    let model_data =
+        model_data.ok_or_else(|| ApiError::BadRequest("No file uploaded".to_string()))?;
 
-    if state
-        .db
-        .models
-        .exists(&model_name, &model_version)
-        .await?
-    {
+    if state.db.models.exists(&model_name, &model_version).await? {
         return Err(ApiError::BadRequest(format!(
             "Model {}:{} already exists",
             model_name, model_version
@@ -156,7 +155,10 @@ pub async fn upload(
 
             state.db.models.save(&model).await?;
 
-            return Err(ApiError::BadRequest(format!("Model validation failed: {}", e)));
+            return Err(ApiError::BadRequest(format!(
+                "Model validation failed: {}",
+                e
+            )));
         }
     }
 }
@@ -191,7 +193,10 @@ pub async fn register(
             output_shapes = Some(serde_json::to_value(metadata.outputs)?);
         }
         Err(e) => {
-            return Err(ApiError::BadRequest(format!("Model validation failed: {}", e)));
+            return Err(ApiError::BadRequest(format!(
+                "Model validation failed: {}",
+                e
+            )));
         }
     }
 

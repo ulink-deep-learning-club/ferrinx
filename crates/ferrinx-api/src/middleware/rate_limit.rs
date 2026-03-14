@@ -1,13 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use axum::{
-    body::Body,
-    extract::State,
-    http::Request,
-    middleware::Next,
-    response::Response,
-};
+use axum::{body::Body, extract::State, http::Request, middleware::Next, response::Response};
 use dashmap::DashMap;
 use std::sync::Arc;
 
@@ -41,18 +35,21 @@ impl RateLimiter {
 
         self.limits.retain(|_, entry| entry.reset_at > minute_ago);
 
-        let entry = self.limits.entry(key.to_string()).or_insert(RateLimitEntry {
-            count: AtomicU64::new(0),
-            reset_at: now + Duration::from_secs(60),
-        });
+        let entry = self
+            .limits
+            .entry(key.to_string())
+            .or_insert(RateLimitEntry {
+                count: AtomicU64::new(0),
+                reset_at: now + Duration::from_secs(60),
+            });
 
         let new_count = entry.count.fetch_add(1, Ordering::SeqCst) + 1;
-        
+
         if new_count > limit as u64 {
             entry.count.fetch_sub(1, Ordering::SeqCst);
             return Ok(false);
         }
-        
+
         Ok(true)
     }
 }
@@ -74,7 +71,9 @@ pub async fn rate_limit_middleware(
     let key = if let Some(info) = api_key_info {
         format!("rate_limit:{}", info.id)
     } else {
-        let ip = req.extensions().get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        let ip = req
+            .extensions()
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
             .map(|info| info.ip().to_string())
             .unwrap_or_else(|| "unknown".to_string());
         format!("rate_limit:ip:{}", ip)

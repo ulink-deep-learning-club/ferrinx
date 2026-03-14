@@ -33,12 +33,7 @@ pub trait RedisClient: Send + Sync {
 
     async fn xack(&self, stream: &str, group: &str, entry_id: &str) -> Result<()>;
 
-    async fn xpending(
-        &self,
-        stream: &str,
-        group: &str,
-        count: usize,
-    ) -> Result<Vec<PendingInfo>>;
+    async fn xpending(&self, stream: &str, group: &str, count: usize) -> Result<Vec<PendingInfo>>;
 
     async fn xclaim(
         &self,
@@ -49,18 +44,9 @@ pub trait RedisClient: Send + Sync {
         entry_ids: &[&str],
     ) -> Result<Vec<StreamEntry>>;
 
-    async fn xadd(
-        &self,
-        stream: &str,
-        data: &HashMap<String, String>,
-    ) -> Result<String>;
+    async fn xadd(&self, stream: &str, data: &HashMap<String, String>) -> Result<String>;
 
-    async fn set_json(
-        &self,
-        key: &str,
-        value: &serde_json::Value,
-        ttl: Duration,
-    ) -> Result<()>;
+    async fn set_json(&self, key: &str, value: &serde_json::Value, ttl: Duration) -> Result<()>;
 
     async fn get_json(&self, key: &str) -> Result<Option<serde_json::Value>>;
 
@@ -97,11 +83,7 @@ impl MockRedis {
         id
     }
 
-    pub async fn add_task_with_data(
-        &self,
-        stream: &str,
-        data: HashMap<String, String>,
-    ) -> String {
+    pub async fn add_task_with_data(&self, stream: &str, data: HashMap<String, String>) -> String {
         let mut streams = self.streams.write().await;
         let id = format!("{}-0", chrono::Utc::now().timestamp_millis());
         let entry = StreamEntry {
@@ -128,7 +110,9 @@ impl MockRedis {
 
     pub async fn get_result(&self, task_id: &str) -> Option<serde_json::Value> {
         let results = self.results.read().await;
-        results.get(&format!("ferrinx:results:{}", task_id)).cloned()
+        results
+            .get(&format!("ferrinx:results:{}", task_id))
+            .cloned()
     }
 
     pub async fn clear(&self) {
@@ -179,12 +163,7 @@ impl RedisClient for MockRedis {
         Ok(())
     }
 
-    async fn xpending(
-        &self,
-        stream: &str,
-        _group: &str,
-        count: usize,
-    ) -> Result<Vec<PendingInfo>> {
+    async fn xpending(&self, stream: &str, _group: &str, count: usize) -> Result<Vec<PendingInfo>> {
         let pending = self.pending.read().await;
         Ok(pending
             .get(stream)
@@ -213,11 +192,7 @@ impl RedisClient for MockRedis {
         }
     }
 
-    async fn xadd(
-        &self,
-        stream: &str,
-        data: &HashMap<String, String>,
-    ) -> Result<String> {
+    async fn xadd(&self, stream: &str, data: &HashMap<String, String>) -> Result<String> {
         let mut streams = self.streams.write().await;
         let id = format!("{}-0", chrono::Utc::now().timestamp_millis());
         let entry = StreamEntry {
@@ -228,12 +203,7 @@ impl RedisClient for MockRedis {
         Ok(id)
     }
 
-    async fn set_json(
-        &self,
-        key: &str,
-        value: &serde_json::Value,
-        _ttl: Duration,
-    ) -> Result<()> {
+    async fn set_json(&self, key: &str, value: &serde_json::Value, _ttl: Duration) -> Result<()> {
         let mut results = self.results.write().await;
         results.insert(key.to_string(), value.clone());
         Ok(())

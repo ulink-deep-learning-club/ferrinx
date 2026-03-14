@@ -161,6 +161,72 @@ ferrinx-cli     ← (HTTP client only, no core/db dependency)
 - Redis 6.2+ (optional, for distributed mode)
 - ONNX Runtime
 
+### ONNX Runtime Linking
+
+Ferrinx supports two linking modes for ONNX Runtime:
+
+#### Static Linking (Default)
+
+By default, Ferrinx uses the `download-binaries` feature which statically links pre-built ONNX Runtime binaries. This is the simplest approach but requires:
+
+- **glibc 2.38+** (Debian 13+, Ubuntu 24.04+, Fedora 39+, etc.)
+
+```bash
+# Default build - uses pre-built ONNX Runtime binaries
+cargo build --release
+```
+
+#### Dynamic Linking (load-dynamic)
+
+For systems with older glibc versions, use the `load-dynamic` feature to load your system's ONNX Runtime at runtime:
+
+1. Install ONNX Runtime on your system (e.g., from [official releases](https://github.com/microsoft/onnxruntime/releases))
+
+2. Build with `load-dynamic` feature:
+```bash
+cargo build --release --features load-dynamic
+```
+
+3. Configure the library path in `config.toml`:
+```toml
+[onnx]
+cache_size = 5
+execution_provider = "CPU"
+dynamic_lib_path = "/path/to/libonnxruntime.so"  # Path to your ONNX Runtime library
+```
+
+Or set the `ORT_DYLIB_PATH` environment variable:
+```bash
+ORT_DYLIB_PATH=/usr/local/lib/libonnxruntime.so ./target/release/ferrinx-api
+```
+
+### Execution Providers
+
+Ferrinx supports multiple execution providers for hardware acceleration:
+
+| Provider | Feature Flag | Platform | Notes |
+|----------|-------------|----------|-------|
+| CPU | (default) | All | Always available |
+| WebGPU | `--features webgpu` | Linux, Windows, macOS | Uses Vulkan (Linux), DirectX (Windows), Metal (macOS) |
+| CUDA | `--features cuda` | Linux, Windows | Requires CUDA 12.8+ and cuDNN 9.19+ |
+| CoreML | `--features coreml` | macOS | Apple Silicon optimization |
+| ROCm | `--features rocm` | Linux | AMD GPU support |
+
+**WebGPU** is the recommended GPU acceleration option for most users:
+```bash
+# Build with WebGPU support
+cargo build --release --features webgpu
+
+# Run (Linux requires LD_LIBRARY_PATH for the WebGPU library)
+LD_LIBRARY_PATH=./target/release ./target/release/ferrinx-api
+```
+
+Configure in `config.toml`:
+```toml
+[onnx]
+execution_provider = "WEBGPU"
+```
+
 ### Installation
 
 ```bash
@@ -294,6 +360,7 @@ path = "./models"
 [onnx]
 cache_size = 5
 execution_provider = "CPU"  # Options: CPU, CUDA, TensorRT, CoreML, ROCm
+# dynamic_lib_path = "/path/to/libonnxruntime.so"  # Optional: for load-dynamic feature
 ```
 
 ## Example: Synchronous Inference
@@ -401,6 +468,9 @@ cargo run --bin ferrinx-api
 # Run with custom database URL
 export FERRINX_DATABASE_URL="sqlite://./data/ferrinx.db"
 cargo run --bin ferrinx-api
+
+# Run with load-dynamic feature (for older glibc systems)
+ORT_DYLIB_PATH=/path/to/libonnxruntime.so cargo run --bin ferrinx-api --features load-dynamic
 ```
 
 ## Tech Stack
@@ -408,7 +478,7 @@ cargo run --bin ferrinx-api
 | Component | Technology |
 |-----------|------------|
 | Web Framework | axum |
-| ONNX Runtime | ort |
+| ONNX Runtime | ort (with download-binaries or load-dynamic) |
 | Database | sqlx (PostgreSQL/SQLite) |
 | Cache/Queue | redis (Redis Streams) |
 | Async Runtime | tokio |

@@ -48,10 +48,16 @@ pub fn generate_uuid() -> Uuid {
     Uuid::new_v4()
 }
 
-pub fn expand_env_vars(input: &str) -> String {
-    shellexpand::env(input)
+pub fn expand_env_vars_with_default(input: &str, default: &str) -> String {
+    let expanded = shellexpand::env(input)
         .unwrap_or_else(|_| input.into())
-        .to_string()
+        .to_string();
+
+    if expanded.starts_with("${") && expanded.ends_with("}") {
+        default.to_string()
+    } else {
+        expanded
+    }
 }
 
 pub fn validate_api_key_format(key: &str, prefix: &str) -> bool {

@@ -153,7 +153,10 @@ async fn test_cli_model_delete() {
     let test_app = TestApp::new().await;
     let admin = test_app.db.create_user("admin", UserRole::Admin).await;
     let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
-    let model = test_app.db.create_model("delete-model", "1.0", Some(test_app.storage_path.path())).await;
+    let model = test_app
+        .db
+        .create_model("delete-model", "1.0", Some(test_app.storage_path.path()))
+        .await;
     let (addr, _handle) = test_app.start_server_blocking();
     let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
 
@@ -205,7 +208,10 @@ async fn test_cli_inference_sync() {
     let test_app = TestApp::new().await;
     let user = test_app.db.create_user("inferuser", UserRole::User).await;
     let (_, user_key) = test_app.db.create_api_key(&user, "infer-key", false).await;
-    let model = test_app.db.create_model("infer-model", "1.0", Some(test_app.storage_path.path())).await;
+    let model = test_app
+        .db
+        .create_model("infer-model", "1.0", Some(test_app.storage_path.path()))
+        .await;
     let (addr, _handle) = test_app.start_server_blocking();
     let config_file = create_temp_config(&format!("http://{}", addr), Some(&user_key));
 
@@ -216,7 +222,12 @@ async fn test_cli_inference_sync() {
     let input_data = serde_json::json!({
         "import/Placeholder:0": serde_json::to_value(&tensor).unwrap()
     });
-    writeln!(input_file, "{}", serde_json::to_string(&input_data).unwrap()).unwrap();
+    writeln!(
+        input_file,
+        "{}",
+        serde_json::to_string(&input_data).unwrap()
+    )
+    .unwrap();
 
     ferrinx_binary()
         .arg("--config")
@@ -277,7 +288,10 @@ async fn test_cli_task_list() {
     let test_app = TestApp::new().await;
     let user = test_app.db.create_user("taskuser", UserRole::User).await;
     let (key_id, user_key) = test_app.db.create_api_key(&user, "task-key", false).await;
-    let model = test_app.db.create_model("task-model", "1.0", Some(test_app.storage_path.path())).await;
+    let model = test_app
+        .db
+        .create_model("task-model", "1.0", Some(test_app.storage_path.path()))
+        .await;
     test_app.db.create_task(&model, &user, &key_id).await;
     let (addr, _handle) = test_app.start_server_blocking();
     let config_file = create_temp_config(&format!("http://{}", addr), Some(&user_key));
@@ -439,7 +453,10 @@ async fn test_cli_model_info() {
     let test_app = TestApp::new().await;
     let admin = test_app.db.create_user("admin", UserRole::Admin).await;
     let (_, admin_key) = test_app.db.create_api_key(&admin, "admin-key", true).await;
-    let model = test_app.db.create_model("info-model", "1.0", Some(test_app.storage_path.path())).await;
+    let model = test_app
+        .db
+        .create_model("info-model", "1.0", Some(test_app.storage_path.path()))
+        .await;
     let (addr, _handle) = test_app.start_server_blocking();
     let config_file = create_temp_config(&format!("http://{}", addr), Some(&admin_key));
 
@@ -511,7 +528,8 @@ async fn test_cli_full_workflow() {
         .assert()
         .success()
         .get_output()
-        .stdout.clone();
+        .stdout
+        .clone();
 
     let output_str = String::from_utf8_lossy(&bootstrap_output);
     let api_key_start = output_str
@@ -609,15 +627,20 @@ async fn test_cli_model_upload_path_from_config_name_version_from_cli() {
 
     // Create minimal config with model.file using absolute path
     let mut minimal_config = NamedTempFile::new().unwrap();
-    let minimal_config_content = format!(r#"
+    let minimal_config_content = format!(
+        r#"
 [model]
 file = "{}"
 
 [[inputs]]
 name = "input"
 shape = [-1, 1, 64, 64]
-"#, models_dir_path.join("hanzi_tiny.onnx").to_str().unwrap());
-    minimal_config.write_all(minimal_config_content.as_bytes()).unwrap();
+"#,
+        models_dir_path.join("hanzi_tiny.onnx").to_str().unwrap()
+    );
+    minimal_config
+        .write_all(minimal_config_content.as_bytes())
+        .unwrap();
 
     ferrinx_binary()
         .arg("--config")
@@ -647,7 +670,8 @@ async fn test_cli_model_upload_all_from_config() {
 
     // Create complete config with all required fields
     let mut complete_config = NamedTempFile::new().unwrap();
-    let complete_config_content = format!(r#"
+    let complete_config_content = format!(
+        r#"
 [meta]
 name = "config-only-model"
 version = "3.0.0"
@@ -659,8 +683,12 @@ file = "{}"
 [[inputs]]
 name = "input"
 shape = [-1, 1, 64, 64]
-"#, models_dir_path.join("hanzi_tiny.onnx").to_str().unwrap());
-    complete_config.write_all(complete_config_content.as_bytes()).unwrap();
+"#,
+        models_dir_path.join("hanzi_tiny.onnx").to_str().unwrap()
+    );
+    complete_config
+        .write_all(complete_config_content.as_bytes())
+        .unwrap();
 
     ferrinx_binary()
         .arg("--config")
@@ -713,7 +741,8 @@ async fn test_cli_model_register_all_from_config() {
 
     // Create complete config with all required fields
     let mut complete_config = NamedTempFile::new().unwrap();
-    let complete_config_content = format!(r#"
+    let complete_config_content = format!(
+        r#"
 [meta]
 name = "register-config-model"
 version = "2.0.0"
@@ -725,8 +754,12 @@ file = "{}"
 [[inputs]]
 name = "input"
 shape = [-1, 1, 64, 64]
-"#, models_dir_path.join("hanzi_tiny.onnx").to_str().unwrap());
-    complete_config.write_all(complete_config_content.as_bytes()).unwrap();
+"#,
+        models_dir_path.join("hanzi_tiny.onnx").to_str().unwrap()
+    );
+    complete_config
+        .write_all(complete_config_content.as_bytes())
+        .unwrap();
 
     ferrinx_binary()
         .arg("--config")
@@ -762,7 +795,9 @@ async fn test_cli_model_upload_missing_path_error() {
         .arg("1.0.0")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("Either model_path or --model-config must be provided"));
+        .stderr(predicate::str::contains(
+            "Either model_path or --model-config must be provided",
+        ));
 }
 
 // Test: Error when config missing required fields
@@ -785,7 +820,9 @@ version = "1.0.0"
 name = "input"
 shape = [-1, 1, 64, 64]
 "#;
-    incomplete_config.write_all(incomplete_config_content.as_bytes()).unwrap();
+    incomplete_config
+        .write_all(incomplete_config_content.as_bytes())
+        .unwrap();
 
     ferrinx_binary()
         .arg("--config")
@@ -821,7 +858,9 @@ file = "hanzi_tiny.onnx"
 name = "input"
 shape = [-1, 1, 64, 64]
 "#;
-    incomplete_config.write_all(incomplete_config_content.as_bytes()).unwrap();
+    incomplete_config
+        .write_all(incomplete_config_content.as_bytes())
+        .unwrap();
 
     ferrinx_binary()
         .arg("--config")
@@ -857,7 +896,9 @@ file = "hanzi_tiny.onnx"
 name = "input"
 shape = [-1, 1, 64, 64]
 "#;
-    incomplete_config.write_all(incomplete_config_content.as_bytes()).unwrap();
+    incomplete_config
+        .write_all(incomplete_config_content.as_bytes())
+        .unwrap();
 
     ferrinx_binary()
         .arg("--config")
@@ -891,5 +932,7 @@ async fn test_cli_model_register_missing_path_error() {
         .arg("1.0.0")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("Either server_path or --model-config must be provided"));
+        .stderr(predicate::str::contains(
+            "Either server_path or --model-config must be provided",
+        ));
 }

@@ -50,11 +50,17 @@ impl TaskProcessor {
             .ok_or(WorkerError::TaskNotFound(task_id))?;
 
         if task.status.is_terminal() {
-            info!("Task {} already in terminal state: {:?}", task_id, task.status);
+            info!(
+                "Task {} already in terminal state: {:?}",
+                task_id, task.status
+            );
             return Ok(());
         }
 
-        self.db.tasks.update_status(&task_id, TaskStatus::Running).await?;
+        self.db
+            .tasks
+            .update_status(&task_id, TaskStatus::Running)
+            .await?;
 
         let result = self.execute_inference(&task).await;
 
@@ -133,7 +139,10 @@ impl TaskProcessor {
                 task_id, retry_count, self.max_retries, delay_ms
             );
 
-            self.db.tasks.update_status(&task_id, TaskStatus::Pending).await?;
+            self.db
+                .tasks
+                .update_status(&task_id, TaskStatus::Pending)
+                .await?;
 
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
         } else {
@@ -142,7 +151,8 @@ impl TaskProcessor {
                 task_id
             );
 
-            self.move_to_dead_letter(task_message, &error.to_string()).await?;
+            self.move_to_dead_letter(task_message, &error.to_string())
+                .await?;
 
             self.db
                 .tasks
@@ -153,11 +163,7 @@ impl TaskProcessor {
         Ok(())
     }
 
-    async fn cache_result(
-        &self,
-        task_id: &Uuid,
-        outputs: &serde_json::Value,
-    ) -> Result<()> {
+    async fn cache_result(&self, task_id: &Uuid, outputs: &serde_json::Value) -> Result<()> {
         let key = format!("ferrinx:results:{}", task_id);
 
         self.redis
@@ -167,22 +173,13 @@ impl TaskProcessor {
         Ok(())
     }
 
-    async fn move_to_dead_letter(
-        &self,
-        task_message: &TaskMessage,
-        error: &str,
-    ) -> Result<()> {
+    async fn move_to_dead_letter(&self, task_message: &TaskMessage, error: &str) -> Result<()> {
         let mut data = task_message.data.clone();
         data.insert("error".to_string(), error.to_string());
         data.insert("retries".to_string(), self.max_retries.to_string());
-        data.insert(
-            "failed_at".to_string(),
-            chrono::Utc::now().to_rfc3339(),
-        );
+        data.insert("failed_at".to_string(), chrono::Utc::now().to_rfc3339());
 
-        self.redis
-            .xadd("ferrinx:tasks:dead_letter", &data)
-            .await?;
+        self.redis.xadd("ferrinx:tasks:dead_letter", &data).await?;
 
         warn!(
             "Task {} moved to dead letter queue: {}",
@@ -275,10 +272,7 @@ mod tests {
             Ok(())
         }
 
-        async fn get_json(
-            &self,
-            _key: &str,
-        ) -> crate::error::Result<Option<serde_json::Value>> {
+        async fn get_json(&self, _key: &str) -> crate::error::Result<Option<serde_json::Value>> {
             Ok(None)
         }
 
@@ -361,6 +355,7 @@ mod tests {
                 preload: vec![],
                 execution_provider: ferrinx_common::ExecutionProvider::CPU,
                 gpu_device_id: 0,
+                dynamic_lib_path: None,
             };
             let engine = Arc::new(InferenceEngine::new(&onnx_config).unwrap());
 

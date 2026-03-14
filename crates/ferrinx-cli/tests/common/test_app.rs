@@ -31,7 +31,10 @@ pub fn models_dir() -> std::path::PathBuf {
 }
 
 pub fn hanzi_tiny_model_path() -> String {
-    models_dir().join("hanzi_tiny.onnx").to_string_lossy().to_string()
+    models_dir()
+        .join("hanzi_tiny.onnx")
+        .to_string_lossy()
+        .to_string()
 }
 
 pub struct TestApp {
@@ -69,7 +72,8 @@ impl TestApp {
         );
         let loader = Arc::new(ModelLoader::new(storage.clone()));
         let rate_limiter = Arc::new(RateLimiter::new(1000, 60));
-        let engine = Arc::new(InferenceEngine::new(&self.config.onnx).expect("Failed to create engine"));
+        let engine =
+            Arc::new(InferenceEngine::new(&self.config.onnx).expect("Failed to create engine"));
 
         let state = AppState {
             config: self.config.clone(),
@@ -92,23 +96,23 @@ impl TestApp {
         let app = self.create_router();
         let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
         let (tx, rx) = std::sync::mpsc::channel::<SocketAddr>();
-        
+
         let cancel_token = self.cancel_token.clone();
 
         let handle = std::thread::spawn(move || {
             let runtime = Runtime::new().expect("Failed to create Tokio runtime");
-            
+
             runtime.block_on(async move {
-                let listener = tokio::net::TcpListener::bind(&addr).await
+                let listener = tokio::net::TcpListener::bind(&addr)
+                    .await
                     .expect("Failed to bind to address");
-                let local_addr = listener.local_addr()
-                    .expect("Failed to get local address");
-                
+                let local_addr = listener.local_addr().expect("Failed to get local address");
+
                 // Notify the main thread that the server is starting
                 let _ = tx.send(local_addr);
 
                 let server = axum::serve(listener, app);
-                
+
                 // Run the server with graceful shutdown
                 tokio::select! {
                     result = server => {
@@ -124,8 +128,7 @@ impl TestApp {
         });
 
         // Wait for the server to be ready (blocking)
-        let server_addr = rx.recv()
-            .expect("Server thread failed to start");
+        let server_addr = rx.recv().expect("Server thread failed to start");
 
         // Give a small delay for the server to actually start accepting connections
         std::thread::sleep(Duration::from_millis(100));
@@ -178,7 +181,11 @@ impl TestDb {
     }
 
     pub fn temp_file_path(&self) -> String {
-        self._temp_file.path().to_str().expect("Invalid path").to_string()
+        self._temp_file
+            .path()
+            .to_str()
+            .expect("Invalid path")
+            .to_string()
     }
 
     pub async fn create_user(&self, username: &str, role: UserRole) -> User {
@@ -191,7 +198,11 @@ impl TestDb {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        self.db.users.save(&user).await.expect("Failed to create user");
+        self.db
+            .users
+            .save(&user)
+            .await
+            .expect("Failed to create user");
         user
     }
 
@@ -227,9 +238,14 @@ impl TestDb {
         (key_id, raw_key)
     }
 
-    pub async fn create_model(&self, name: &str, version: &str, storage_path: Option<&std::path::Path>) -> ModelInfo {
+    pub async fn create_model(
+        &self,
+        name: &str,
+        version: &str,
+        storage_path: Option<&std::path::Path>,
+    ) -> ModelInfo {
         let source_path = std::path::PathBuf::from(hanzi_tiny_model_path());
-        
+
         // Copy model file to test storage if provided
         let model_path = if let Some(storage) = storage_path {
             let storage_models_dir = storage.join("models");
@@ -241,9 +257,7 @@ impl TestDb {
             source_path
         };
 
-        let file_size = std::fs::metadata(&model_path)
-            .map(|m| m.len() as i64)
-            .ok();
+        let file_size = std::fs::metadata(&model_path).map(|m| m.len() as i64).ok();
 
         let metadata = Some(serde_json::json!({
             "inputs": {
