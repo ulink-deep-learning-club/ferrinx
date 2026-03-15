@@ -1,6 +1,9 @@
 use crate::config::OutputFormat;
 use crate::error::Result;
-use comfy_table::{Cell, CellAlignment, ContentArrangement, Table};
+use comfy_table::{
+    modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL, Attribute, Cell, CellAlignment, Color,
+    ContentArrangement, Table,
+};
 use ferrinx_common::{ApiKeyDetail, TaskDetail};
 use serde::Serialize;
 
@@ -51,7 +54,13 @@ pub fn print_models(models: &[ModelDetail], format: OutputFormat) -> Result<()> 
                     Cell::new(short_id),
                     Cell::new(&model.name),
                     Cell::new(&model.version),
-                    Cell::new(if model.is_valid { "✓" } else { "✗" }),
+                    Cell::new(if model.is_valid { "✓" } else { "✗" })
+                        .fg(if model.is_valid {
+                            Color::Green
+                        } else {
+                            Color::Red
+                        })
+                        .add_attribute(Attribute::Bold),
                     Cell::new(&model.created_at),
                 ]);
             }
@@ -77,8 +86,20 @@ pub fn print_api_keys(keys: &[ApiKeyDetail], format: OutputFormat) -> Result<()>
                 table.add_row(vec![
                     Cell::new(short_id),
                     Cell::new(&key.name),
-                    Cell::new(if key.is_active { "✓" } else { "✗" }),
-                    Cell::new(if key.is_temporary { "✓" } else { "✗" }),
+                    Cell::new(if key.is_active { "✓" } else { "✗" })
+                        .fg(if key.is_active {
+                            Color::Green
+                        } else {
+                            Color::Red
+                        })
+                        .add_attribute(Attribute::Bold),
+                    Cell::new(if key.is_temporary { "✓" } else { "✗" })
+                        .fg(if key.is_temporary {
+                            Color::Green
+                        } else {
+                            Color::Red
+                        })
+                        .add_attribute(Attribute::Bold),
                     Cell::new(key.expires_at.as_deref().unwrap_or("Never")),
                 ]);
             }
@@ -178,7 +199,13 @@ pub fn print_users(users: &[serde_json::Value], format: OutputFormat) -> Result<
                         "✓"
                     } else {
                         "✗"
-                    }),
+                    })
+                    .fg(if user["is_active"].as_bool().unwrap_or(false) {
+                        Color::Green
+                    } else {
+                        Color::Red
+                    })
+                    .add_attribute(Attribute::Bold),
                     Cell::new(user["created_at"].as_str().unwrap_or("")),
                 ]);
             }
@@ -192,11 +219,18 @@ pub fn print_users(users: &[serde_json::Value], format: OutputFormat) -> Result<
 
 fn create_table(headers: &[&str]) -> Table {
     let mut table = Table::new();
-    table.set_content_arrangement(ContentArrangement::Dynamic);
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_content_arrangement(ContentArrangement::Dynamic);
 
     let header_row: Vec<Cell> = headers
         .iter()
-        .map(|h| Cell::new(h).set_alignment(CellAlignment::Center))
+        .map(|h| {
+            Cell::new(h)
+                .add_attribute(Attribute::Bold)
+                .set_alignment(CellAlignment::Center)
+        })
         .collect();
     table.set_header(header_row);
 
