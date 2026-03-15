@@ -138,20 +138,22 @@ ferrinx/
 ### Module Dependencies
 
 ```
-ferrinx-common  ← (shared by all crates)
+ferrinx-common  ← (shared types: ModelConfig, DTOs, config, etc.)
     ↑
-ferrinx-db      ← (database abstraction)
-    ↑
-ferrinx-core    ← (inference engine)
-    ↑
-┌───┴────┐
-ferrinx-api     ferrinx-worker
+├── ferrinx-db      (database abstraction)
+│       ↑
+│   ferrinx-core    (inference engine - ONNX Runtime)
+│       ↑
+│   ┌───┴────┐
+│   ferrinx-api     ferrinx-worker
 │
-↓
-ferrinx-cli     ← (HTTP client only, depends on ferrinx-common for types, ferrinx-api for DTOs)
+└── ferrinx-cli     (HTTP client - NO core/api dependencies)
 ```
 
-**Note:** `ferrinx-cli` does NOT depend on `ferrinx-core`. Model configuration types (`ModelConfig`, `PreprocessOp`, etc.) are defined in `ferrinx-common` and used by both `ferrinx-cli` and `ferrinx-core`.
+**Note:** `ferrinx-cli` is fully independent of `ferrinx-core` and `ferrinx-api`:
+- All shared types (`ModelConfig`, `ApiKeyDetail`, `TaskDetail`, etc.) are in `ferrinx-common`
+- CLI only depends on `ferrinx-common` for production builds
+- CLI test suite uses `ferrinx-core`/`ferrinx-api`/`ferrinx-db` for integration tests
 
 ## Quick Start
 
