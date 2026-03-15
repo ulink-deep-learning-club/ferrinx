@@ -1,7 +1,7 @@
 use crate::config::OutputFormat;
 use crate::error::Result;
 use comfy_table::{Cell, CellAlignment, ContentArrangement, Table};
-use ferrinx_api::dto::{ApiKeyDetail, TaskDetail};
+use ferrinx_common::{ApiKeyDetail, TaskDetail};
 use serde::Serialize;
 
 pub fn print_output<T: Serialize>(value: &T, format: OutputFormat) -> Result<()> {

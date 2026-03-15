@@ -4,7 +4,7 @@ use crate::config::CliConfig;
 use crate::error::Result;
 use crate::output;
 use clap::Subcommand;
-use ferrinx_api::dto::ApiKeyDetail as ApiKeyResponse;
+use ferrinx_common::ApiKeyDetail as ApiKeyResponse;
 
 #[derive(Subcommand)]
 pub enum ApiKeyCommands {

@@ -15,7 +15,6 @@ path = "src/lib.rs"
 
 [dependencies]
 ferrinx-common = { path = "../ferrinx-common" }
-ferrinx-api = { path = "../ferrinx-api" }
 
 clap = { version = "4.6", features = ["derive", "env"] }
 reqwest = { workspace = true, features = ["json", "multipart", "stream"] }

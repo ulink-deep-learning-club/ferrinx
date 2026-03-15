@@ -4,7 +4,7 @@ use crate::config::CliConfig;
 use crate::error::{CliError, Result};
 use crate::output;
 use clap::Subcommand;
-use ferrinx_api::dto::UserDetail as UserResponse;
+use ferrinx_common::UserDetail as UserResponse;
 
 #[derive(Subcommand)]
 pub enum AdminCommands {

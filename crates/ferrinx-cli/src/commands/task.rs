@@ -3,7 +3,7 @@ use crate::config::CliConfig;
 use crate::error::Result;
 use crate::output;
 use clap::Subcommand;
-use ferrinx_api::dto::TaskDetail as TaskResponse;
+use ferrinx_common::TaskDetail as TaskResponse;
 
 #[derive(Subcommand)]
 pub enum TaskCommands {
