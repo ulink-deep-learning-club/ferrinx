@@ -145,12 +145,13 @@ ferrinx-db      ← (database abstraction)
 ferrinx-core    ← (inference engine)
     ↑
 ┌───┴────┐
-▼        ▼
 ferrinx-api     ferrinx-worker
 │
-▼
-ferrinx-cli     ← (HTTP client only, no core/db dependency)
+↓
+ferrinx-cli     ← (HTTP client only, depends on ferrinx-common for types, ferrinx-api for DTOs)
 ```
+
+**Note:** `ferrinx-cli` does NOT depend on `ferrinx-core`. Model configuration types (`ModelConfig`, `PreprocessOp`, etc.) are defined in `ferrinx-common` and used by both `ferrinx-cli` and `ferrinx-core`.
 
 ## Quick Start
 
@@ -187,18 +188,20 @@ For systems with older glibc versions, use the `load-dynamic` feature to load yo
 cargo build --release --features load-dynamic
 ```
 
-3. Configure the library path in `config.toml`:
-```toml
-[onnx]
-cache_size = 5
-execution_provider = "CPU"
-dynamic_lib_path = "/path/to/libonnxruntime.so"  # Path to your ONNX Runtime library
-```
-
-Or set the `ORT_DYLIB_PATH` environment variable:
-```bash
-ORT_DYLIB_PATH=/usr/local/lib/libonnxruntime.so ./target/release/ferrinx-api
-```
+3. Configure the library path (priority order):
+   - **Config file** (`config.toml`) - highest priority:
+     ```toml
+     [onnx]
+     dynamic_lib_path = "/path/to/libonnxruntime.so"
+     ```
+   - **Environment variable** `ORT_DYLIB_PATH`:
+     ```bash
+     ORT_DYLIB_PATH=/usr/local/lib/libonnxruntime.so ./target/release/ferrinx-api
+     ```
+   - **System library path** (`LD_LIBRARY_PATH` on Linux):
+     ```bash
+     LD_LIBRARY_PATH=/usr/local/lib ./target/release/ferrinx-api
+     ```
 
 ### Execution Providers
 
@@ -208,9 +211,17 @@ Ferrinx supports multiple execution providers for hardware acceleration:
 |----------|-------------|----------|-------|
 | CPU | (default) | All | Always available |
 | WebGPU | `--features webgpu` | Linux, Windows, macOS | Uses Vulkan (Linux), DirectX (Windows), Metal (macOS) |
-| CUDA | `--features cuda` | Linux, Windows | Requires CUDA 12.8+ and cuDNN 9.19+ |
+| CUDA | `--features cuda` | Linux, Windows | CUDA + cuDNN required (version depends on ONNX Runtime version) |
 | CoreML | `--features coreml` | macOS | Apple Silicon optimization |
 | ROCm | `--features rocm` | Linux | AMD GPU support |
+
+**CUDA/cuDNN requirements by ONNX Runtime version:**
+
+| API Version | CUDA | cuDNN |
+|-------------|------|-------|
+| `api-17` - `api-21` | 11.x | 8.x |
+| `api-22` - `api-23` | 12.x | 8.9+ |
+| `api-24` | 12.8+ | 9.19+ |
 
 **WebGPU** is the recommended GPU acceleration option for most users:
 ```bash
@@ -226,6 +237,38 @@ Configure in `config.toml`:
 [onnx]
 execution_provider = "WEBGPU"
 ```
+
+### ONNX Runtime API Versions
+
+Ferrinx supports multiple ONNX Runtime versions via API version features. Only one API version can be enabled at a time:
+
+| Feature | ONNX Runtime Version | Notes |
+|---------|---------------------|-------|
+| `api-17` | 1.17 | Baseline |
+| `api-18` | 1.18 | |
+| `api-19` | 1.19 | |
+| `api-20` | 1.20 | |
+| `api-21` | 1.21 | |
+| `api-22` | 1.22 | |
+| `api-23` | 1.23 | **Default** - Last version supporting NVIDIA Pascal (GP100, GP102, etc.) and Volta (GV100) architectures |
+| `api-24` | 1.24 | Latest |
+
+**Build examples:**
+```bash
+# Default build (api-23, ONNX Runtime 1.23)
+cargo build --release
+
+# ONNX Runtime 1.20 with CUDA
+cargo build --release --no-default-features --features "api-20,cuda"
+
+# Latest ONNX Runtime 1.24 with CoreML
+cargo build --release --no-default-features --features "api-24,coreml"
+
+# ONNX Runtime 1.17 (oldest supported) with ROCm
+cargo build --release --no-default-features --features "api-17,rocm"
+```
+
+> **Note:** If you have older NVIDIA GPUs (Pascal/Volta architecture), use the default `api-23` or explicitly enable it, as ONNX Runtime 1.24+ dropped support for these architectures.
 
 ### Installation
 
@@ -566,7 +609,7 @@ Apache-2.0
 | **Prometheus Metrics** | `ferrinx-api/src/handlers/mod.rs:36` | Basic metrics endpoint returning cache/concurrency status | Full Prometheus metrics: request counters, latency histograms, cache hit/miss counters |
 | **Transaction Support** | `ferrinx-db/src/context.rs` | Basic transaction begin/commit | Transaction methods (`save_tx`, `delete_tx`, `delete_by_user_tx`) not implemented in repositories |
 | **Database Backends** | `ferrinx-db/` | SQLite fully implemented | PostgreSQL implementation pending |
-| **GPU Execution Providers** | `ferrinx-core/src/inference/engine.rs` | CPU, CUDA, TensorRT, CoreML, ROCm all implemented via ort 2.0 API | Only CoreML tested (on macOS); CUDA/TensorRT/ROCm need Linux/Windows + GPU hardware testing |
+| **GPU Execution Providers** | `ferrinx-core/src/inference/engine.rs` | CPU, CUDA, TensorRT, CoreML, ROCm all implemented via ort 2.0 API | Only CoreML and CUDA tested; TensorRT/ROCm need GPU hardware testing |
 
 ### ❌ Not Started
 

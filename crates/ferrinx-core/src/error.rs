@@ -47,6 +47,9 @@ pub enum CoreError {
     #[error("Blocking task failed: {0}")]
     BlockingTaskFailed(String),
 
+    #[error("ONNX Runtime library not found: {0}")]
+    OnnxRuntimeLibraryNotFound(String),
+
     #[error("Storage error: {0}")]
     StorageError(#[from] StorageError),
 
@@ -260,5 +263,14 @@ mod tests {
             Err(CoreError::InferenceTimeout)
         }
         assert!(returns_error().is_err());
+    }
+
+    #[test]
+    fn test_onnx_runtime_library_not_found_display() {
+        let error = CoreError::OnnxRuntimeLibraryNotFound("/path/to/lib.so".to_string());
+        assert_eq!(
+            format!("{}", error),
+            "ONNX Runtime library not found: /path/to/lib.so"
+        );
     }
 }

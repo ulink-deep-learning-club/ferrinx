@@ -1170,6 +1170,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "shellexpand",
+ "tempfile",
  "thiserror 2.0.18",
  "toml",
  "tracing",

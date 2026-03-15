@@ -3,6 +3,7 @@
 *.db
 /data
 /models
-/onnxruntime
+/onnxruntime*
 .env
 config.toml
+/lib

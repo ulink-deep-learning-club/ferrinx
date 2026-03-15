@@ -1,2 +1,10 @@
 [test]
 thread-count = 1
+
+[target.x86_64-unknown-linux-musl]
+linker = "/home/heyan/ferrinx/lib/musl-cross/x86_64-linux-musl/bin/x86_64-linux-musl-gcc"
+
+[env]
+CC_x86_64_unknown_linux_musl = "/home/heyan/ferrinx/lib/musl-cross/x86_64-linux-musl/bin/x86_64-linux-musl-gcc"
+CXX_x86_64_unknown_linux_musl = "/home/heyan/ferrinx/lib/musl-cross/x86_64-linux-musl/bin/x86_64-linux-musl-g++"
+AR_x86_64_unknown_linux_musl = "/home/heyan/ferrinx/lib/musl-cross/x86_64-linux-musl/bin/x86_64-linux-musl-ar"

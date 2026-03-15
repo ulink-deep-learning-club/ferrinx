@@ -23,3 +23,6 @@ base64 = { workspace = true }
 ndarray = "0.17"
 bcrypt = "0.19"
 dotenvy = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

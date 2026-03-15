@@ -4,11 +4,12 @@ use crate::config::CliConfig;
 use crate::error::{CliError, Result};
 use crate::output::{self, ModelDetail};
 use clap::Subcommand;
+use ferrinx_common::ModelConfig;
 use std::collections::HashMap;
 use std::path::Path;
 
 pub fn embed_labels_in_config(config_content: &str, config_path: &str) -> Result<String> {
-    let mut config: ferrinx_core::model::config::ModelConfig = toml::from_str(config_content)
+    let mut config: ModelConfig = toml::from_str(config_content)
         .map_err(|e| crate::error::CliError::Config(format!("Invalid config TOML: {}", e)))?;
 
     let base_path = Path::new(config_path).parent().unwrap_or(Path::new("."));
@@ -23,7 +24,7 @@ pub fn get_model_file_from_config(
     config_content: &str,
     config_path: &str,
 ) -> Result<Option<String>> {
-    let config: ferrinx_core::model::config::ModelConfig = toml::from_str(config_content)
+    let config: ModelConfig = toml::from_str(config_content)
         .map_err(|e| CliError::Config(format!("Invalid config TOML: {}", e)))?;
 
     if let Some(ref model) = config.model {
@@ -37,7 +38,7 @@ pub fn get_model_file_from_config(
 
 /// Resolve model file path from config, making it relative to config directory if needed
 pub fn resolve_model_file_path(config_content: &str, config_path: &str) -> Result<Option<String>> {
-    let config: ferrinx_core::model::config::ModelConfig = toml::from_str(config_content)
+    let config: ModelConfig = toml::from_str(config_content)
         .map_err(|e| CliError::Config(format!("Invalid config TOML: {}", e)))?;
 
     if let Some(ref model) = config.model {
@@ -51,7 +52,7 @@ pub fn resolve_model_file_path(config_content: &str, config_path: &str) -> Resul
 
 /// Extract model name from config if present
 pub fn get_model_name_from_config(config_content: &str) -> Result<Option<String>> {
-    let config: ferrinx_core::model::config::ModelConfig = toml::from_str(config_content)
+    let config: ModelConfig = toml::from_str(config_content)
         .map_err(|e| CliError::Config(format!("Invalid config TOML: {}", e)))?;
 
     Ok(config.meta.as_ref().and_then(|m| {
@@ -65,7 +66,7 @@ pub fn get_model_name_from_config(config_content: &str) -> Result<Option<String>
 
 /// Extract model version from config if present
 pub fn get_model_version_from_config(config_content: &str) -> Result<Option<String>> {
-    let config: ferrinx_core::model::config::ModelConfig = toml::from_str(config_content)
+    let config: ModelConfig = toml::from_str(config_content)
         .map_err(|e| CliError::Config(format!("Invalid config TOML: {}", e)))?;
 
     Ok(config.meta.as_ref().and_then(|m| {

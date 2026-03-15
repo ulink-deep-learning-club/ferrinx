@@ -29,13 +29,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Invalid configuration".into());
     }
 
-    if let Some(ref lib_path) = config.onnx.dynamic_lib_path {
-        #[cfg(not(feature = "load-dynamic"))]
-        warn!("dynamic_lib_path is set but 'load-dynamic' feature is not enabled. Using static linking instead.");
+    if cfg!(feature = "load-dynamic") {
+        let lib_path = config
+            .onnx
+            .dynamic_lib_path
+            .clone()
+            .or_else(|| std::env::var("ORT_DYLIB_PATH").ok());
 
-        ferrinx_core::init_onnxruntime(lib_path)?;
-        #[cfg(feature = "load-dynamic")]
-        info!("Initialized ONNX Runtime from: {}", lib_path);
+        if let Some(ref path) = lib_path {
+            ferrinx_core::init_onnxruntime(path)?;
+            info!("Initialized ONNX Runtime from: {}", path);
+        } else {
+            info!("ONNX Runtime will use default library search path (LD_LIBRARY_PATH or system default)");
+        }
+    } else if config.onnx.dynamic_lib_path.is_some() {
+        warn!("dynamic_lib_path is set but 'load-dynamic' feature is not enabled. Using static linking instead.");
     }
 
     info!("Initializing database...");

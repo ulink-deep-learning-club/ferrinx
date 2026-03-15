@@ -7,6 +7,16 @@ license.workspace = true
 
 [features]
 default = []
+
+api-17 = ["ferrinx-core/api-17"]
+api-18 = ["ferrinx-core/api-18"]
+api-19 = ["ferrinx-core/api-19"]
+api-20 = ["ferrinx-core/api-20"]
+api-21 = ["ferrinx-core/api-21"]
+api-22 = ["ferrinx-core/api-22"]
+api-23 = ["ferrinx-core/api-23"]
+api-24 = ["ferrinx-core/api-24"]
+
 cuda = ["ferrinx-core/cuda"]
 rocm = ["ferrinx-core/rocm"]
 coreml = ["ferrinx-core/coreml"]

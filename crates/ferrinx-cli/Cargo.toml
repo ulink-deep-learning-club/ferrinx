@@ -15,7 +15,6 @@ path = "src/lib.rs"
 
 [dependencies]
 ferrinx-common = { path = "../ferrinx-common" }
-ferrinx-core = { path = "../ferrinx-core" }
 ferrinx-api = { path = "../ferrinx-api" }
 
 clap = { version = "4.6", features = ["derive", "env"] }
@@ -38,11 +37,12 @@ comfy-table = "7.2"
 atty = "0.2"
 
 [dev-dependencies]
+ferrinx-core = { path = "../ferrinx-core" }
+ferrinx-api = { path = "../ferrinx-api" }
+ferrinx-db = { path = "../ferrinx-db" }
 tempfile = { workspace = true }
 assert_cmd = "2.2"
 predicates = "3.1"
-ferrinx-api = { path = "../ferrinx-api" }
-ferrinx-db = { path = "../ferrinx-db" }
 axum = { workspace = true }
 tokio-util = { workspace = true }
 rand = { workspace = true }

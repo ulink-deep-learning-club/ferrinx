@@ -6,7 +6,17 @@ authors.workspace = true
 license.workspace = true
 
 [features]
-default = []
+default = ["api-23"]
+
+api-17 = ["ort/api-17"]
+api-18 = ["ort/api-18"]
+api-19 = ["ort/api-19"]
+api-20 = ["ort/api-20"]
+api-21 = ["ort/api-21"]
+api-22 = ["ort/api-22"]
+api-23 = ["ort/api-23"]
+api-24 = ["ort/api-24"]
+
 cuda = ["ort/cuda"]
 rocm = ["ort/rocm"]
 coreml = ["ort/coreml"]
@@ -35,24 +45,13 @@ tempfile = "3"
 
 [dependencies.ort]
 version = "=2.0.0-rc.12"
+default-features = false
 features = [
     "std",
     "ndarray",
     "download-binaries",
-    "webgpu"
+    "tls-native",
 ]
-
-[target.'cfg(target_os = "linux")'.dependencies.ort]
-version = "=2.0.0-rc.12"
-features = ["download-binaries", "webgpu"]
-
-[target.'cfg(target_os = "windows")'.dependencies.ort]
-version = "=2.0.0-rc.12"
-features = ["download-binaries", "webgpu"]
-
-[target.'cfg(target_os = "macos")'.dependencies.ort]
-version = "=2.0.0-rc.12"
-features = ["download-binaries", "coreml"]
 
 [dev-dependencies]
 tempfile = "3"
