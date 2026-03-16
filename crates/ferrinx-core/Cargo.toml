@@ -6,8 +6,6 @@ authors.workspace = true
 license.workspace = true
 
 [features]
-default = ["api-23"]
-
 api-17 = ["ort/api-17"]
 api-18 = ["ort/api-18"]
 api-19 = ["ort/api-19"]

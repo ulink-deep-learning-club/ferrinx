@@ -6,7 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [features]
-default = []
+default = ["api-23"]
 
 api-17 = ["ferrinx-core/api-17"]
 api-18 = ["ferrinx-core/api-18"]
