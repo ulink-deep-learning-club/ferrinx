@@ -51,6 +51,8 @@ features = [
     "ndarray",
     "download-binaries",
     "tls-native",
+    "copy-dylibs",
+    "tracing"
 ]
 
 [dev-dependencies]
