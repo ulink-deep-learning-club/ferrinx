@@ -276,7 +276,7 @@ cargo build --release --no-default-features --features "api-17,rocm"
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/ferrinx.git
+git clone https://github.com/ulink-deep-learning-club/ferrinx.git
 cd ferrinx
 
 # Build
