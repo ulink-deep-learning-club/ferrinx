@@ -1,6 +1,6 @@
 # Ferrinx
 
-A lightweight ONNX inference service with simplicity and flexibility in mind, while maintaining decent performance.
+A lightweight toy ONNX inference service with simplicity and flexibility in mind, while maintaining decent performance.
 
 Turn your ONNX models into HTTP APIs with minimal fuss. One binary, one config file, and you're running.
 
@@ -285,8 +285,23 @@ cargo build --release
 # Start API server (SQLite database is auto-created)
 ./target/release/ferrinx-api
 
-# Start worker (in another terminal, requires Redis)
+# Start worker (in another terminal, requires Redis for async inference)
 ./target/release/ferrinx-worker
+```
+
+### Worker Configuration
+
+Worker uses the same `ferrinx.toml` configuration file. See [docs/WORKER.md](docs/WORKER.md) for detailed worker configuration options.
+
+Quick worker configuration:
+
+```toml
+[worker]
+consumer_name = ""           # Auto-generated if empty (hostname-pid)
+concurrency = 4              # Number of concurrent tasks
+poll_interval_ms = 100       # Redis polling interval
+max_retries = 3              # Task retry count
+retry_delay_ms = 1000        # Retry delay
 ```
 
 ### Bootstrap
@@ -406,7 +421,15 @@ path = "./models"
 cache_size = 5
 execution_provider = "CPU"  # Options: CPU, CUDA, TensorRT, CoreML, ROCm
 # dynamic_lib_path = "/path/to/libonnxruntime.so"  # Optional: for load-dynamic feature
+
+[worker]
+consumer_name = ""           # Worker ID (auto-generated if empty)
+concurrency = 4              # Concurrent tasks
+poll_interval_ms = 100       # Redis poll interval
+max_retries = 3              # Task retry count
 ```
+
+See [docs/WORKER.md](docs/WORKER.md) for complete worker configuration.
 
 ## Example: Synchronous Inference
 
@@ -553,14 +576,22 @@ Perfect for development, experimentation, or small workloads:
 cargo run --bin ferrinx-api
 ```
 
-### With Redis (Optional)
+### With Redis and Worker (Distributed)
 
-When you need to distribute work across multiple machines:
+When you need to distribute work across multiple machines or run async inference:
+
 ```bash
-# Start Redis, then:
+# Start Redis
+redis-server
+
+# Terminal 1: Start API server
 cargo run --bin ferrinx-api
-cargo run --bin ferrinx-worker  # Run on same or different machine
+
+# Terminal 2: Start worker (can run multiple instances on same or different machines)
+cargo run --bin ferrinx-worker
 ```
+
+See [docs/WORKER.md](docs/WORKER.md) for complete worker configuration and troubleshooting.
 
 ## Security
 
