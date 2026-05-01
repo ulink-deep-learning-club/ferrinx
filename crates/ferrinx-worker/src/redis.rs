@@ -70,7 +70,7 @@ pub trait RedisClient: Send + Sync {
     async fn remove_worker_models(&self, worker_id: &str) -> Result<()>;
 }
 
-pub fn create_redis_client(url: &str) -> Result<std::sync::Arc<dyn RedisClient>> {
+pub async fn create_redis_client(url: &str) -> Result<std::sync::Arc<dyn RedisClient>> {
     let config = ferrinx_common::RedisPoolConfig {
         url: url.to_string(),
         pool_size: 10,
@@ -80,9 +80,8 @@ pub fn create_redis_client(url: &str) -> Result<std::sync::Arc<dyn RedisClient>>
         task_timeout_ms: 300000,
     };
 
-    let rt = tokio::runtime::Handle::current();
-    let client = rt
-        .block_on(async { ferrinx_common::RedisClient::new(config).await })
+    let client = ferrinx_common::RedisClient::new(config)
+        .await
         .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))?;
 
     Ok(std::sync::Arc::new(RealRedisClientAdapter(client)))
@@ -260,5 +259,103 @@ impl RedisClient for RealRedisClientAdapter {
             .remove_worker_models(worker_id)
             .await
             .map_err(|e| crate::error::WorkerError::RedisError(e.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_stream_entry_creation() {
+        let mut data = HashMap::new();
+        data.insert("task_id".to_string(), "123".to_string());
+        data.insert("model_id".to_string(), "456".to_string());
+
+        let entry = StreamEntry {
+            id: "1234567890-0".to_string(),
+            data: data.clone(),
+        };
+
+        assert_eq!(entry.id, "1234567890-0");
+        assert_eq!(entry.data.get("task_id").unwrap(), "123");
+        assert_eq!(entry.data.get("model_id").unwrap(), "456");
+    }
+
+    #[test]
+    fn test_stream_entry_clone() {
+        let mut data = HashMap::new();
+        data.insert("key".to_string(), "value".to_string());
+
+        let entry = StreamEntry {
+            id: "test-id".to_string(),
+            data,
+        };
+
+        let cloned = entry.clone();
+        assert_eq!(cloned.id, entry.id);
+        assert_eq!(cloned.data, entry.data);
+    }
+
+    #[test]
+    fn test_pending_info_creation() {
+        let pending = PendingInfo {
+            id: "1234567890-0".to_string(),
+            consumer: "worker-1".to_string(),
+            idle_time_ms: 300_000,
+            deliveries: 2,
+        };
+
+        assert_eq!(pending.id, "1234567890-0");
+        assert_eq!(pending.consumer, "worker-1");
+        assert_eq!(pending.idle_time_ms, 300_000);
+        assert_eq!(pending.deliveries, 2);
+    }
+
+    #[test]
+    fn test_pending_info_clone() {
+        let pending = PendingInfo {
+            id: "test-id".to_string(),
+            consumer: "test-consumer".to_string(),
+            idle_time_ms: 100_000,
+            deliveries: 1,
+        };
+
+        let cloned = pending.clone();
+        assert_eq!(cloned.id, pending.id);
+        assert_eq!(cloned.consumer, pending.consumer);
+        assert_eq!(cloned.idle_time_ms, pending.idle_time_ms);
+        assert_eq!(cloned.deliveries, pending.deliveries);
+    }
+
+    #[test]
+    fn test_pending_info_debug() {
+        let pending = PendingInfo {
+            id: "test-id".to_string(),
+            consumer: "test-consumer".to_string(),
+            idle_time_ms: 100_000,
+            deliveries: 1,
+        };
+
+        let debug_str = format!("{:?}", pending);
+        assert!(debug_str.contains("test-id"));
+        assert!(debug_str.contains("test-consumer"));
+        assert!(debug_str.contains("100000"));
+    }
+
+    #[test]
+    fn test_stream_entry_debug() {
+        let mut data = HashMap::new();
+        data.insert("key".to_string(), "value".to_string());
+
+        let entry = StreamEntry {
+            id: "test-id".to_string(),
+            data,
+        };
+
+        let debug_str = format!("{:?}", entry);
+        assert!(debug_str.contains("test-id"));
+        assert!(debug_str.contains("key"));
+        assert!(debug_str.contains("value"));
     }
 }

@@ -116,7 +116,7 @@ fn default_timeout() -> u32 {
     300
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AsyncInferResponse {
     pub task_id: String,
     pub status: String,

@@ -50,8 +50,11 @@ dashmap = "6"
 
 [dev-dependencies]
 ferrinx-cli = { path = "../ferrinx-cli" }
+ferrinx-worker = { path = "../ferrinx-worker" }
 tempfile = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true }
 reqwest = { workspace = true }
 toml = { workspace = true }
+assert_cmd = "2.2"
+predicates = "3.1"

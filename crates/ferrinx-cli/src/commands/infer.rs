@@ -35,7 +35,7 @@ pub enum InferCommands {
         name: Option<String>,
         #[arg(short, long, requires = "name")]
         version: Option<String>,
-        #[arg(short, long, conflicts_with = "image")]
+        #[arg(short = 'I', long, conflicts_with = "image")]
         input: Option<String>,
         #[arg(short, long, conflicts_with = "input")]
         image: Option<String>,
@@ -150,9 +150,7 @@ pub async fn handle_infer(
 
                 let response: AsyncInferResponse = client.post("/inference", &request).await?;
 
-                output::print_success("Task submitted");
-                println!("Task ID: {}", response.task_id);
-                println!("Status: {}", response.status);
+                output::print_output(&response, config.output_format)?;
             } else {
                 return Err(CliError::InvalidInput(
                     "Either --input or --image is required".to_string(),

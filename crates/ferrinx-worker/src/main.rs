@@ -33,7 +33,7 @@ impl WorkerContext {
     async fn from_config(config: ferrinx_common::Config) -> Result<Self> {
         let db = Arc::new(ferrinx_db::DbContext::new(&config.database).await?);
 
-        let redis = redis::create_redis_client(&config.redis.url)?;
+        let redis = (redis::create_redis_client(&config.redis.url).await)?;
 
         let cached_models: model_reporter::CachedModelsRef =
             Arc::new(std::sync::RwLock::new(std::collections::HashSet::new()));

@@ -192,7 +192,7 @@ impl RedisClient {
     ) -> Result<Option<TaskMessage>, RedisError> {
         let mut conn = self.conn.clone();
 
-        let result: Option<HashMap<String, Vec<Vec<Value>>>> = redis::cmd("XREADGROUP")
+        let result: Value = redis::cmd("XREADGROUP")
             .arg("GROUP")
             .arg(REDIS_CONSUMER_GROUP)
             .arg(consumer)
@@ -204,15 +204,35 @@ impl RedisClient {
             .query_async(&mut conn)
             .await?;
 
-        if let Some(streams_map) = result {
-            if let Some(entries) = streams_map.get(stream) {
-                if let Some(entry) = entries.first() {
-                    return Ok(Some(self.parse_stream_entry(stream, entry)?));
+        match result {
+            Value::Nil => Ok(None),
+            Value::Array(streams) => {
+                for stream_result in streams {
+                    if let Value::Array(mut parts) = stream_result {
+                        if parts.len() < 2 {
+                            continue;
+                        }
+                        let stream_name = match &parts[0] {
+                            Value::BulkString(bytes) => String::from_utf8_lossy(bytes).to_string(),
+                            _ => continue,
+                        };
+                        if stream_name != stream {
+                            continue;
+                        }
+                        let entries = std::mem::take(&mut parts[1]);
+                        if let Value::Array(entries) = entries {
+                            if let Some(entry) = entries.into_iter().next() {
+                                if let Value::Array(entry_parts) = entry {
+                                    return Ok(Some(self.parse_stream_entry(stream, &entry_parts)?));
+                                }
+                            }
+                        }
+                    }
                 }
+                Ok(None)
             }
+            _ => Ok(None),
         }
-
-        Ok(None)
     }
 
     fn parse_stream_entry(&self, stream: &str, entry: &[Value]) -> Result<TaskMessage, RedisError> {

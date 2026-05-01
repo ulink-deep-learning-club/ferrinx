@@ -90,8 +90,31 @@ impl TestApp {
         create_router(state)
     }
 
-    /// Start the server in a dedicated thread and block until it's fully ready.
-    /// Returns the server address and a thread handle for graceful shutdown.
+    pub fn create_router_with_redis(&self, redis: Arc<ferrinx_common::RedisClient>) -> Router {
+        let storage = Arc::new(
+            LocalStorage::new(self.storage_path.path().to_str().unwrap())
+                .expect("Failed to create storage"),
+        );
+        let loader = Arc::new(ModelLoader::new(storage.clone()));
+        let rate_limiter = Arc::new(RateLimiter::new(1000, 60));
+        let engine =
+            Arc::new(InferenceEngine::new(&self.config.onnx).expect("Failed to create engine"));
+
+        let state = AppState {
+            config: self.config.clone(),
+            db: self.db.db.clone(),
+            redis: Some(redis),
+            engine,
+            loader,
+            storage,
+            rate_limiter,
+            cancel_token: self.cancel_token.clone(),
+            start_time: std::time::Instant::now(),
+        };
+
+        create_router(state)
+    }
+
     pub fn start_server_blocking(&self) -> (SocketAddr, std::thread::JoinHandle<()>) {
         let app = self.create_router();
         let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
@@ -108,12 +131,10 @@ impl TestApp {
                     .expect("Failed to bind to address");
                 let local_addr = listener.local_addr().expect("Failed to get local address");
 
-                // Notify the main thread that the server is starting
                 let _ = tx.send(local_addr);
 
                 let server = axum::serve(listener, app);
 
-                // Run the server with graceful shutdown
                 tokio::select! {
                     result = server => {
                         if let Err(e) = result {
@@ -127,18 +148,117 @@ impl TestApp {
             });
         });
 
-        // Wait for the server to be ready (blocking)
         let server_addr = rx.recv().expect("Server thread failed to start");
 
-        // Give a small delay for the server to actually start accepting connections
         std::thread::sleep(Duration::from_millis(100));
 
         (server_addr, handle)
     }
 
-    /// Start server in a way compatible with tokio test runtime
+    pub fn start_server_with_redis_blocking(
+        &self,
+        _redis: Arc<ferrinx_common::RedisClient>,
+    ) -> (SocketAddr, std::thread::JoinHandle<()>) {
+        let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<SocketAddr>();
+
+        let cancel_token = self.cancel_token.clone();
+        let config = self.config.clone();
+        let db = self.db.db.clone();
+        let storage_path = self.storage_path.path().to_str().unwrap().to_string();
+        let redis_url = std::env::var("TEST_REDIS_URL")
+            .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+
+        let handle = std::thread::spawn(move || {
+            let runtime = Runtime::new().expect("Failed to create Tokio runtime");
+
+            runtime.block_on(async move {
+                let redis_config = ferrinx_common::RedisPoolConfig {
+                    url: redis_url,
+                    pool_size: 5,
+                    connection_timeout: std::time::Duration::from_secs(5),
+                    api_key_cache_ttl: 3600,
+                    result_cache_ttl: 86400,
+                    task_timeout_ms: 300000,
+                };
+                let redis = match ferrinx_common::RedisClient::new(redis_config).await {
+                    Ok(r) => Arc::new(r),
+                    Err(_) => {
+                        eprintln!("Failed to create Redis client in server thread");
+                        return;
+                    }
+                };
+
+                let app = Self::create_router_with_redis_static(redis, config, db, storage_path, cancel_token.clone());
+
+                let listener = tokio::net::TcpListener::bind(&addr)
+                    .await
+                    .expect("Failed to bind to address");
+                let local_addr = listener.local_addr().expect("Failed to get local address");
+
+                let _ = tx.send(local_addr);
+
+                let server = axum::serve(listener, app);
+
+                tokio::select! {
+                    result = server => {
+                        if let Err(e) = result {
+                            eprintln!("Server error: {}", e);
+                        }
+                    }
+                    _ = cancel_token.cancelled() => {
+                        println!("Server shutting down gracefully");
+                    }
+                }
+            });
+        });
+
+        let server_addr = rx.recv().expect("Server thread failed to start");
+
+        std::thread::sleep(Duration::from_millis(100));
+
+        (server_addr, handle)
+    }
+
+    fn create_router_with_redis_static(
+        redis: Arc<ferrinx_common::RedisClient>,
+        config: Arc<ferrinx_common::Config>,
+        db: Arc<ferrinx_db::DbContext>,
+        storage_path: String,
+        cancel_token: tokio_util::sync::CancellationToken,
+    ) -> Router {
+        use ferrinx_api::routes::{create_router, AppState};
+        use ferrinx_api::middleware::rate_limit::RateLimiter;
+        use ferrinx_core::InferenceEngine;
+        use ferrinx_core::ModelLoader;
+        use ferrinx_core::ModelStorage;
+        use ferrinx_core::storage::LocalStorage;
+
+        let storage: Arc<dyn ModelStorage> = Arc::new(
+            LocalStorage::new(&storage_path)
+                .expect("Failed to create storage"),
+        );
+        let loader = Arc::new(ModelLoader::new(storage.clone()));
+        let rate_limiter = Arc::new(RateLimiter::new(1000, 60));
+        let engine =
+            Arc::new(InferenceEngine::new(&config.onnx).expect("Failed to create engine"));
+
+        let state = AppState {
+            config,
+            db,
+            redis: Some(redis),
+            engine,
+            loader,
+            storage,
+            rate_limiter,
+            cancel_token,
+            start_time: std::time::Instant::now(),
+        };
+
+        create_router(state)
+    }
+
     pub async fn start_server(&self) -> (SocketAddr, std::thread::JoinHandle<()>) {
-        // Just call the blocking version since we need synchronous server startup
         self.start_server_blocking()
     }
 
@@ -246,7 +366,6 @@ impl TestDb {
     ) -> ModelInfo {
         let source_path = std::path::PathBuf::from(hanzi_tiny_model_path());
 
-        // Copy model file to test storage if provided
         let model_path = if let Some(storage) = storage_path {
             let storage_models_dir = storage.join("models");
             std::fs::create_dir_all(&storage_models_dir).expect("Failed to create models dir");
@@ -343,4 +462,35 @@ fn generate_raw_key() -> String {
     let mut rng = rand::rng();
     let random_bytes: Vec<u8> = (0..32).map(|_| rng.random::<u8>()).collect();
     hex::encode(random_bytes)
+}
+
+pub async fn create_redis_client() -> Option<Arc<ferrinx_common::RedisClient>> {
+    let redis_url = std::env::var("TEST_REDIS_URL")
+        .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+
+    let config = ferrinx_common::RedisPoolConfig {
+        url: redis_url,
+        pool_size: 5,
+        connection_timeout: std::time::Duration::from_secs(5),
+        api_key_cache_ttl: 3600,
+        result_cache_ttl: 86400,
+        task_timeout_ms: 300000,
+    };
+
+    match ferrinx_common::RedisClient::new(config).await {
+        Ok(client) => {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                client.health_check()
+            ).await {
+                Ok(Ok(())) => Some(Arc::new(client)),
+                _ => None,
+            }
+        }
+        Err(_) => None,
+    }
+}
+
+pub fn redis_available() -> bool {
+    std::env::var("TEST_REDIS_URL").is_ok() || which::which("redis-cli").is_ok()
 }

@@ -936,3 +936,434 @@ async fn test_cli_model_register_missing_path_error() {
             "Either server_path or --model-config must be provided",
         ));
 }
+
+#[tokio::test]
+async fn test_cli_inference_async_submit() {
+    let redis = match common::create_redis_client().await {
+        Some(r) => r,
+        None => {
+            eprintln!("Skipping test: Redis not available");
+            return;
+        }
+    };
+
+    let test_app = TestApp::new().await;
+    let user = test_app.db.create_user("inferuser", UserRole::User).await;
+    let (_, user_key) = test_app.db.create_api_key(&user, "infer-key", false).await;
+    let model = test_app
+        .db
+        .create_model("async-model", "1.0", Some(test_app.storage_path.path()))
+        .await;
+
+    if redis.set_worker_heartbeat("test-worker-1").await.is_err() {
+        eprintln!("Skipping test: Redis operation failed");
+        return;
+    }
+    if redis
+        .set_worker_models("test-worker-1", &[(model.id.to_string(), "available".to_string())].into_iter().collect())
+        .await
+        .is_err()
+    {
+        eprintln!("Skipping test: Redis operation failed");
+        return;
+    }
+
+    let (addr, _handle) = test_app.start_server_with_redis_blocking(redis);
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&user_key));
+
+    let mut input_file = NamedTempFile::new().unwrap();
+    let input_shape = vec![1i64, 1, 64, 64];
+    let input_vec = vec![0.0f32; 1 * 1 * 64 * 64];
+    let tensor = Tensor::new_f32(input_shape, &input_vec);
+    let input_data = serde_json::json!({
+        "import/Placeholder:0": serde_json::to_value(&tensor).unwrap()
+    });
+    writeln!(
+        input_file,
+        "{}",
+        serde_json::to_string(&input_data).unwrap()
+    )
+    .unwrap();
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("infer")
+        .arg("async")
+        .arg(&model.id.to_string())
+        .arg("--input")
+        .arg(input_file.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("task_id"))
+        .stdout(predicate::str::contains("pending"));
+}
+
+#[tokio::test]
+async fn test_cli_inference_async_with_name_version() {
+    let redis = match common::create_redis_client().await {
+        Some(r) => r,
+        None => {
+            eprintln!("Skipping test: Redis not available");
+            return;
+        }
+    };
+
+    let test_app = TestApp::new().await;
+    let user = test_app.db.create_user("inferuser2", UserRole::User).await;
+    let (_, user_key) = test_app.db.create_api_key(&user, "infer-key2", false).await;
+    let model = test_app
+        .db
+        .create_model("async-model-nv", "2.0", Some(test_app.storage_path.path()))
+        .await;
+
+    if redis.set_worker_heartbeat("test-worker-2").await.is_err() {
+        eprintln!("Skipping test: Redis operation failed");
+        return;
+    }
+    if redis
+        .set_worker_models("test-worker-2", &[(model.id.to_string(), "available".to_string())].into_iter().collect())
+        .await
+        .is_err()
+    {
+        eprintln!("Skipping test: Redis operation failed");
+        return;
+    }
+
+    let (addr, _handle) = test_app.start_server_with_redis_blocking(redis);
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&user_key));
+
+    let mut input_file = NamedTempFile::new().unwrap();
+    let input_shape = vec![1i64, 1, 64, 64];
+    let input_vec = vec![0.0f32; 1 * 1 * 64 * 64];
+    let tensor = Tensor::new_f32(input_shape, &input_vec);
+    let input_data = serde_json::json!({
+        "import/Placeholder:0": serde_json::to_value(&tensor).unwrap()
+    });
+    writeln!(
+        input_file,
+        "{}",
+        serde_json::to_string(&input_data).unwrap()
+    )
+    .unwrap();
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("infer")
+        .arg("async")
+        .arg("--name")
+        .arg("async-model-nv")
+        .arg("--version")
+        .arg("2.0")
+        .arg("--input")
+        .arg(input_file.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("task_id"))
+        .stdout(predicate::str::contains("pending"));
+}
+
+#[tokio::test]
+async fn test_cli_inference_async_no_worker_available() {
+    let redis = match common::create_redis_client().await {
+        Some(r) => r,
+        None => {
+            eprintln!("Skipping test: Redis not available");
+            return;
+        }
+    };
+
+    let test_app = TestApp::new().await;
+    let user = test_app.db.create_user("inferuser3", UserRole::User).await;
+    let (_, user_key) = test_app.db.create_api_key(&user, "infer-key3", false).await;
+    let model = test_app
+        .db
+        .create_model("no-worker-model", "1.0", Some(test_app.storage_path.path()))
+        .await;
+
+    let (addr, _handle) = test_app.start_server_with_redis_blocking(redis);
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&user_key));
+
+    let mut input_file = NamedTempFile::new().unwrap();
+    let input_shape = vec![1i64, 1, 64, 64];
+    let input_vec = vec![0.0f32; 1 * 1 * 64 * 64];
+    let tensor = Tensor::new_f32(input_shape, &input_vec);
+    let input_data = serde_json::json!({
+        "import/Placeholder:0": serde_json::to_value(&tensor).unwrap()
+    });
+    writeln!(
+        input_file,
+        "{}",
+        serde_json::to_string(&input_data).unwrap()
+    )
+    .unwrap();
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("infer")
+        .arg("async")
+        .arg(&model.id.to_string())
+        .arg("--input")
+        .arg(input_file.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Error"));
+}
+
+#[tokio::test]
+async fn test_cli_task_status_after_submit() {
+    let redis = match common::create_redis_client().await {
+        Some(r) => r,
+        None => {
+            eprintln!("Skipping test: Redis not available");
+            return;
+        }
+    };
+
+    let test_app = TestApp::new().await;
+    let user = test_app.db.create_user("taskuser2", UserRole::User).await;
+    let (_, user_key) = test_app.db.create_api_key(&user, "task-key2", false).await;
+    let model = test_app
+        .db
+        .create_model("task-status-model", "1.0", Some(test_app.storage_path.path()))
+        .await;
+
+    if redis.set_worker_heartbeat("test-worker-3").await.is_err() {
+        eprintln!("Skipping test: Redis operation failed");
+        return;
+    }
+    if redis
+        .set_worker_models("test-worker-3", &[(model.id.to_string(), "available".to_string())].into_iter().collect())
+        .await
+        .is_err()
+    {
+        eprintln!("Skipping test: Redis operation failed");
+        return;
+    }
+
+    let (addr, _handle) = test_app.start_server_with_redis_blocking(redis);
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&user_key));
+
+    let mut input_file = NamedTempFile::new().unwrap();
+    let input_shape = vec![1i64, 1, 64, 64];
+    let input_vec = vec![0.0f32; 1 * 1 * 64 * 64];
+    let tensor = Tensor::new_f32(input_shape, &input_vec);
+    let input_data = serde_json::json!({
+        "import/Placeholder:0": serde_json::to_value(&tensor).unwrap()
+    });
+    writeln!(
+        input_file,
+        "{}",
+        serde_json::to_string(&input_data).unwrap()
+    )
+    .unwrap();
+
+    let output = ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("infer")
+        .arg("async")
+        .arg(&model.id.to_string())
+        .arg("--input")
+        .arg(input_file.path())
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let output_str = String::from_utf8_lossy(&output);
+    let task_id: String = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&output_str) {
+        json["task_id"].as_str().unwrap().to_string()
+    } else {
+        let task_id_start = output_str
+            .find("Task ID: ")
+            .expect("Task ID not found in output");
+        let task_id_line = &output_str[task_id_start..];
+        task_id_line
+            .lines()
+            .next()
+            .unwrap()
+            .split_whitespace()
+            .last()
+            .unwrap()
+            .to_string()
+    };
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("task")
+        .arg("status")
+        .arg(&task_id)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("task_id"));
+}
+
+#[tokio::test]
+async fn test_cli_task_cancel() {
+    let test_app = TestApp::new().await;
+    let user = test_app.db.create_user("canceluser", UserRole::User).await;
+    let (key_id, user_key) = test_app.db.create_api_key(&user, "cancel-key", false).await;
+    let model = test_app
+        .db
+        .create_model("cancel-model", "1.0", Some(test_app.storage_path.path()))
+        .await;
+
+    let task = test_app.db.create_task(&model, &user, &key_id).await;
+
+    let (addr, _handle) = test_app.start_server_blocking();
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&user_key));
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("task")
+        .arg("cancel")
+        .arg(&task.id.to_string())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Task cancelled"));
+}
+
+#[tokio::test]
+async fn test_cli_inference_async_invalid_model() {
+    let redis = match common::create_redis_client().await {
+        Some(r) => r,
+        None => {
+            eprintln!("Skipping test: Redis not available");
+            return;
+        }
+    };
+
+    let test_app = TestApp::new().await;
+    let user = test_app.db.create_user("invalidmodel", UserRole::User).await;
+    let (_, user_key) = test_app.db.create_api_key(&user, "invalid-key", false).await;
+
+    let (addr, _handle) = test_app.start_server_with_redis_blocking(redis);
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&user_key));
+
+    let mut input_file = NamedTempFile::new().unwrap();
+    let input_shape = vec![1i64, 1, 64, 64];
+    let input_vec = vec![0.0f32; 1 * 1 * 64 * 64];
+    let tensor = Tensor::new_f32(input_shape, &input_vec);
+    let input_data = serde_json::json!({
+        "import/Placeholder:0": serde_json::to_value(&tensor).unwrap()
+    });
+    writeln!(
+        input_file,
+        "{}",
+        serde_json::to_string(&input_data).unwrap()
+    )
+    .unwrap();
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("infer")
+        .arg("async")
+        .arg("00000000-0000-0000-0000-000000000000")
+        .arg("--input")
+        .arg(input_file.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Error"));
+}
+
+#[tokio::test]
+async fn test_cli_inference_async_priority() {
+    let redis = match common::create_redis_client().await {
+        Some(r) => r,
+        None => {
+            eprintln!("Skipping test: Redis not available");
+            return;
+        }
+    };
+
+    let test_app = TestApp::new().await;
+    let user = test_app.db.create_user("priorityuser", UserRole::User).await;
+    let (_, user_key) = test_app.db.create_api_key(&user, "priority-key", false).await;
+    let model = test_app
+        .db
+        .create_model("priority-model", "1.0", Some(test_app.storage_path.path()))
+        .await;
+
+    if redis.set_worker_heartbeat("test-worker-4").await.is_err() {
+        eprintln!("Skipping test: Redis operation failed");
+        return;
+    }
+    if redis
+        .set_worker_models("test-worker-4", &[(model.id.to_string(), "available".to_string())].into_iter().collect())
+        .await
+        .is_err()
+    {
+        eprintln!("Skipping test: Redis operation failed");
+        return;
+    }
+
+    let (addr, _handle) = test_app.start_server_with_redis_blocking(redis);
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&user_key));
+
+    let mut input_file = NamedTempFile::new().unwrap();
+    let input_shape = vec![1i64, 1, 64, 64];
+    let input_vec = vec![0.0f32; 1 * 1 * 64 * 64];
+    let tensor = Tensor::new_f32(input_shape, &input_vec);
+    let input_data = serde_json::json!({
+        "import/Placeholder:0": serde_json::to_value(&tensor).unwrap()
+    });
+    writeln!(
+        input_file,
+        "{}",
+        serde_json::to_string(&input_data).unwrap()
+    )
+    .unwrap();
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("infer")
+        .arg("async")
+        .arg(&model.id.to_string())
+        .arg("--input")
+        .arg(input_file.path())
+        .arg("--priority")
+        .arg("high")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("task_id"))
+        .stdout(predicate::str::contains("pending"));
+}
+
+#[tokio::test]
+async fn test_cli_inference_async_missing_input() {
+    let redis = match common::create_redis_client().await {
+        Some(r) => r,
+        None => {
+            eprintln!("Skipping test: Redis not available");
+            return;
+        }
+    };
+
+    let test_app = TestApp::new().await;
+    let user = test_app.db.create_user("missinginput", UserRole::User).await;
+    let (_, user_key) = test_app.db.create_api_key(&user, "missing-key", false).await;
+    let model = test_app
+        .db
+        .create_model("missing-input-model", "1.0", Some(test_app.storage_path.path()))
+        .await;
+
+    let (addr, _handle) = test_app.start_server_with_redis_blocking(redis);
+    let config_file = create_temp_config(&format!("http://{}", addr), Some(&user_key));
+
+    ferrinx_binary()
+        .arg("--config")
+        .arg(config_file.path())
+        .arg("infer")
+        .arg("async")
+        .arg(&model.id.to_string())
+        .assert()
+        .failure();
+}

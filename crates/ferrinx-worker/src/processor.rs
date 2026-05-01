@@ -364,4 +364,150 @@ mod tests {
             assert_eq!(processor.retry_base_delay_ms, 1000);
         });
     }
+
+    #[tokio::test]
+    async fn test_process_task_not_found() {
+        let config = ferrinx_common::DatabaseConfig {
+            backend: ferrinx_common::DatabaseBackend::Sqlite,
+            url: ":memory:".to_string(),
+            max_connections: 1,
+            run_migrations: true,
+        };
+        let db = Arc::new(DbContext::new(&config).await.unwrap());
+        let redis = Arc::new(MockRedis::new());
+        let onnx_config = ferrinx_common::OnnxConfig {
+            cache_size: 3,
+            preload: vec![],
+            execution_provider: ferrinx_common::ExecutionProvider::CPU,
+            gpu_device_id: 0,
+            dynamic_lib_path: None,
+        };
+        let engine = Arc::new(InferenceEngine::new(&onnx_config).unwrap());
+
+        let processor = TaskProcessor::new(db, redis, engine, 3, 1000);
+
+        let task_id = Uuid::new_v4();
+        let mut data = HashMap::new();
+        data.insert("task_id".to_string(), task_id.to_string());
+
+        let task_message = TaskMessage {
+            stream: "test-stream".to_string(),
+            entry_id: "test-entry".to_string(),
+            data,
+        };
+
+        let result = processor.process(task_message).await;
+        assert!(result.is_err());
+        
+        if let Err(WorkerError::TaskNotFound(id)) = result {
+            assert_eq!(id, task_id);
+        } else {
+            panic!("Expected TaskNotFound error");
+        }
+    }
+
+    #[test]
+    fn test_processor_with_different_retry_settings() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let config = ferrinx_common::DatabaseConfig {
+                backend: ferrinx_common::DatabaseBackend::Sqlite,
+                url: ":memory:".to_string(),
+                max_connections: 1,
+                run_migrations: true,
+            };
+            let db = Arc::new(DbContext::new(&config).await.unwrap());
+            let redis = Arc::new(MockRedis::new());
+            let onnx_config = ferrinx_common::OnnxConfig {
+                cache_size: 3,
+                preload: vec![],
+                execution_provider: ferrinx_common::ExecutionProvider::CPU,
+                gpu_device_id: 0,
+                dynamic_lib_path: None,
+            };
+            let engine = Arc::new(InferenceEngine::new(&onnx_config).unwrap());
+
+            let processor = TaskProcessor::new(db, redis, engine, 5, 2000);
+            assert_eq!(processor.max_retries, 5);
+            assert_eq!(processor.retry_base_delay_ms, 2000);
+        });
+    }
+
+    #[test]
+    fn test_processor_zero_retries() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let config = ferrinx_common::DatabaseConfig {
+                backend: ferrinx_common::DatabaseBackend::Sqlite,
+                url: ":memory:".to_string(),
+                max_connections: 1,
+                run_migrations: true,
+            };
+            let db = Arc::new(DbContext::new(&config).await.unwrap());
+            let redis = Arc::new(MockRedis::new());
+            let onnx_config = ferrinx_common::OnnxConfig {
+                cache_size: 3,
+                preload: vec![],
+                execution_provider: ferrinx_common::ExecutionProvider::CPU,
+                gpu_device_id: 0,
+                dynamic_lib_path: None,
+            };
+            let engine = Arc::new(InferenceEngine::new(&onnx_config).unwrap());
+
+            let processor = TaskProcessor::new(db, redis, engine, 0, 1000);
+            assert_eq!(processor.max_retries, 0);
+        });
+    }
+
+    #[tokio::test]
+    async fn test_task_message_with_additional_data() {
+        let task_id = Uuid::new_v4();
+        let model_id = Uuid::new_v4();
+        let mut data = HashMap::new();
+        data.insert("task_id".to_string(), task_id.to_string());
+        data.insert("model_id".to_string(), model_id.to_string());
+        data.insert("priority".to_string(), "1".to_string());
+
+        let task_message = TaskMessage {
+            stream: "test-stream".to_string(),
+            entry_id: "test-entry".to_string(),
+            data,
+        };
+
+        assert_eq!(task_message.task_id().unwrap(), task_id);
+        assert_eq!(task_message.stream, "test-stream");
+        assert_eq!(task_message.entry_id, "test-entry");
+    }
+
+    #[tokio::test]
+    async fn test_task_message_invalid_uuid() {
+        let mut data = HashMap::new();
+        data.insert("task_id".to_string(), "invalid-uuid".to_string());
+
+        let task_message = TaskMessage {
+            stream: "test-stream".to_string(),
+            entry_id: "test-entry".to_string(),
+            data,
+        };
+
+        assert!(task_message.task_id().is_err());
+    }
+
+    #[test]
+    fn test_mock_redis_xadd_tracking() {
+        let redis = MockRedis::new();
+
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let mut data = HashMap::new();
+            data.insert("key".to_string(), "value".to_string());
+
+            redis.xadd("test-stream", &data).await.unwrap();
+
+            let calls = redis.xadd_calls.lock().unwrap();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].0, "test-stream");
+            assert_eq!(calls[0].1.get("key").unwrap(), "value");
+        });
+    }
 }

@@ -336,9 +336,9 @@ pub async fn async_infer(
 
     state.db.tasks.save(&task).await?;
 
-    let worker_id = best_worker.ok_or(ApiError::NoWorkerAvailable)?;
+    let _best_worker = best_worker.ok_or(ApiError::NoWorkerAvailable)?;
     redis
-        .push_task_to_worker(&worker_id, &task)
+        .push_task(&task)
         .await
         .map_err(|e| ApiError::RedisError(e.to_string()))?;
 
